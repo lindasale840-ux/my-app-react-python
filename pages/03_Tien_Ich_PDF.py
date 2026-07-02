@@ -42,7 +42,7 @@ check_security()
 
 st.title("🛠️ TIỆN ÍCH PDF")
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "Ghép PDF",
     "Tách PDF",
     "Ảnh → PDF",
@@ -50,7 +50,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "Giảm dung lượng",
     "Hạ phiên bản PDF",
     "Xoá trang trắng",
-    "Xếp chung thư mục theo GCN"
+    "Xếp chung thư mục theo GCN",
+    "Đối chiếu Excel & PDF 🎯"
 ])
 
 # ==================================================
@@ -814,3 +815,93 @@ with tab8: # Hoặc tab8 tùy bạn đặt tên
                     file_name="Ket_Qua_Gom_Nhom_PDF.zip",
                     mime="application/zip"
                 )
+                
+with tab9:
+    st.header("🔍 Đối chiếu danh sách Excel với File PDF Upload")
+    st.write("Tải lên file Excel và các file PDF để kiểm tra xem mã Giấy chứng nhận nào trong Excel đang bị thiếu.")
+
+    import io
+    from backend.pdf_check_cert import check_excel_vs_pdf_uploaded
+
+    # Kéo thả file trực tiếp
+    col1, col2 = st.columns(2)
+    with col1:
+        uploaded_excel = st.file_uploader("📥 Chọn file Excel danh sách:", type=["xlsx", "xls"], key="chk_excel_file")
+    with col2:
+        uploaded_pdfs = st.file_uploader("📥 Chọn các file PDF cần đối chiếu (Chọn nhiều file):", type=["pdf"], accept_multiple_files=True, key="chk_pdf_files")
+
+    col3, col4 = st.columns(2)
+    with col3:
+        column_index = st.number_input("Chỉ số cột chứa mã GCN (Cột Z là 25):", min_value=0, value=25, step=1)
+    with col4:
+        pdf_type = st.radio("Loại tệp PDF tải lên:", ["PDF Văn bản (Digital)", "PDF Scan (Cần chạy OCR)"], horizontal=True)
+
+    if st.button("🚀 Bắt đầu đối chiếu chính xác", type="primary"):
+        if not uploaded_excel:
+            st.error("⚠️ Vui lòng tải lên file Excel danh sách!")
+        elif not uploaded_pdfs:
+            st.error("⚠️ Vui lòng tải lên ít nhất một file PDF để đối chiếu!")
+        else:
+            with st.spinner("🔄 Đang xử lý dữ liệu và đối chiếu... Vui lòng đợi trong giây lát!"):
+                is_scan = (pdf_type == "PDF Scan (Cần chạy OCR)")
+                
+                # Gọi hàm xử lý từ bộ nhớ RAM
+                results = check_excel_vs_pdf_uploaded(
+                    uploaded_pdfs=uploaded_pdfs,
+                    uploaded_excel=uploaded_excel,
+                    column_index=int(column_index),
+                    is_scan=is_scan
+                )
+
+                # =========================================================
+                # 🛠 XỬ LÝ SỬA LỖI 1: LOẠI BỎ DÒNG HEADER TIÊU ĐỀ
+                # =========================================================
+                # Đọc lại dòng đầu tiên của cột để biết chính xác chữ tiêu đề là gì
+                try:
+                    uploaded_excel.seek(0)
+                    df_raw_header = pd.read_excel(uploaded_excel, header=None, nrows=1, dtype=str)
+                    header_value = str(df_raw_header.iloc[0, int(column_index)]).strip().upper()
+                except:
+                    header_value = ""
+
+                # Lọc danh sách thiếu: bỏ qua chữ trùng với tiêu đề cột
+                clean_missing = [x for x in results['missing'] if x.upper() != header_value and "MÃ" not in x.upper() and "CHỨNG NHẬN" not in x.upper()]
+                
+                # Tính toán lại các con số sau khi đã trừ đi dòng header
+                actual_total_excel = results['total_excel'] - 1 if header_value in results['missing'] else results['total_excel']
+                actual_missing_count = len(clean_missing)
+                actual_matched = actual_total_excel - actual_missing_count
+
+                # Hiển thị kết quả trực quan
+                st.success(f"📊 Đã kiểm tra xong {results['total_files_scanned']} file PDF bạn tải lên!")
+                
+                metric1, metric2, metric3 = st.columns(3)
+                metric1.metric("Tổng mã trong Excel", actual_total_excel)
+                metric2.metric("Tìm thấy trong PDF", actual_matched)
+                metric3.metric("Bị thiếu / Không khớp", actual_missing_count, delta_color="inverse")
+
+                st.write("---")
+                if clean_missing:
+                    st.warning(f"⚠️ Phát hiện {actual_missing_count} mã có trong Excel nhưng KHÔNG TÌM THẤY file PDF tương ứng:")
+                    
+                    # Tạo dataframe để hiển thị lên giao diện
+                    df_missing = pd.DataFrame(clean_missing, columns=["Mã GCN Bị Thiếu"])
+                    st.dataframe(df_missing, use_container_width=True)
+
+                    # =========================================================
+                    # 🛠 XỬ LÝ YÊU CẦU 2: TẠO NÚT DOWNLOAD FILE EXCEL KẾT QUẢ
+                    # =========================================================
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                        df_missing.to_excel(writer, index=False, sheet_name='Ket_Qua_Thieu')
+                    
+                    st.download_button(
+                        label="📥 Tải về file Excel kết quả thiếu",
+                        data=buffer.getvalue(),
+                        file_name="Danh_sach_GCN_bi_thieu.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="secondary"
+                    )
+                else:
+                    st.balloons()
+                    st.success("🎉 Tuyệt vời! Tất cả các mã định danh trong Excel đều trùng khớp hoàn toàn với các file PDF bạn đã tải lên!")
