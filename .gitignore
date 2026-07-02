@@ -34,3 +34,6 @@ dist/
 # Chặn file cài đặt exe của Inno Setup
 *.iss
 PDF_Smart_Setup.exe
+
+# Không đưa file bản quyền cục bộ lên Git
+license.json

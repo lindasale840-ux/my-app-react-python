@@ -8,3 +8,4 @@ Pillow
 pytesseract
 ocrmypdf
 pypdf
+cryptography
