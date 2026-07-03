@@ -51,7 +51,7 @@ def verify_license_key(product_key: str):
         
         # Bạn điền tên máy ở nhà vào đây, và điền sẵn một cái tên dự phòng cho máy công ty
         # Ví dụ: ["LAPTOP-HOME", "PC-COMPANY"]
-        admin_machines = ["THINH09091994", "TEN_MAY_CONG_TY_CAP_NHAT_SAU"]
+        admin_machines = ["THINH09091994", "THINH-GST"]
         
         if current_hostname in [name.upper() for name in admin_machines]: 
             return {
