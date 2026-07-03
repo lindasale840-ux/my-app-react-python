@@ -72,6 +72,10 @@ def extract_info_smart(page, naming_type):
             c = CONFIG_TRUNG_ANH["ma_ql"]
             raw = get_text_by_absolute_coordinates(page, c[0], c[1], c[2])
             clean_raw = raw.replace("Management No.", "").replace("\n", " ").replace(":", "").strip()
+            # Áp dụng chung cho cả mục ma_ql của TRUNG_ANH và TRUNG_VIET
+            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)  # Co khoảng trắng quanh dấu trừ
+            clean_raw = re.sub(r'\s+', '-', clean_raw)      # Đổi khoảng trắng đơn lẻ thành dấu trừ
+            clean_raw = re.sub(r'-+', '-', clean_raw)       # Triệt tiêu dấu trừ kép (--) thành (-)
             return None if clean_raw in ["/", "", "nan"] else re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
                 
         elif naming_type == "ten_tb":
@@ -103,6 +107,9 @@ def extract_info_smart(page, naming_type):
             c = CONFIG_TRUNG_VIET["ma_ql"]
             raw = get_text_by_absolute_coordinates(page, c[0], c[1], c[2])
             clean_raw = raw.replace("\n", " ").replace(":", "").strip()
+            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)  # Co khoảng trắng quanh dấu trừ
+            clean_raw = re.sub(r'\s+', '-', clean_raw)      # Đổi khoảng trắng đơn lẻ thành dấu trừ
+            clean_raw = re.sub(r'-+', '-', clean_raw)       # Triệt tiêu dấu trừ kép (--) thành (-)
             return None if clean_raw in ["/", "", "号"] else re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
                 
         elif naming_type == "ten_tb":
@@ -135,6 +142,9 @@ def extract_info_smart(page, naming_type):
         elif naming_type == "ma_ql":
             raw = get_text_next_to_keyword(page, "Mã quản lý")
             clean_raw = raw.replace("\n", " ").replace(":", "").replace("/", "").strip()
+            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)  # Co khoảng trắng quanh dấu trừ
+            clean_raw = re.sub(r'\s+', '-', clean_raw)      # Đổi khoảng trắng đơn lẻ thành dấu trừ
+            clean_raw = re.sub(r'-+', '-', clean_raw)       # Triệt tiêu dấu trừ kép (--) thành (-)
             return None if clean_raw == "" else re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
                 
         elif naming_type == "ten_tb":
