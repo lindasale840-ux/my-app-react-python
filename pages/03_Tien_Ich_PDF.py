@@ -925,7 +925,7 @@ with tab9:
                     st.success("🎉 Tuyệt vời! Tất cả các mã định danh trong Excel đều trùng khớp hoàn toàn với các file PDF bạn đã tải lên!")
                     
 with tab10:
-    st.header("📦 Gom & Nén PDF Theo Danh Sách Excel")
+    st.header("📦 Gom & Nén PDF Theo Danh Sách Excel (như Ryder)")
     st.write("Tìm các file PDF có tên nằm trong danh sách Excel, gộp lại và đóng gói thành file ZIP.")
 
     import os
