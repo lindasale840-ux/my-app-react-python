@@ -59,7 +59,7 @@ check_security()
 
 st.title("🛠️ TIỆN ÍCH PDF")
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "Ghép PDF",
     "Tách PDF",
     "Ảnh → PDF",
@@ -68,7 +68,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "Hạ phiên bản PDF",
     "Xoá trang trắng",
     "Xếp chung thư mục theo GCN",
-    "Đối chiếu Excel & PDF 🎯"
+    "Đối chiếu Excel & PDF 🎯",
+    "📦 Gom & Nén PDF Theo Danh Sách Excel"
 ])
 
 # ==================================================
@@ -752,7 +753,7 @@ with tab7:
                 st.exception(e)
             
 with tab8: # Hoặc tab8 tùy bạn đặt tên
-    st.subheader("📂 Phân loại & Gom nhóm PDF theo danh mục Excel")
+    st.subheader("📂 Phân loại & Gom nhóm PDF theo danh mục Excel như (CHERVON)")
     st.write("Đối chiếu tên file PDF (Mã GCN) with Excel để tự động nhóm vào từng Folder riêng biệt.")
 
     # 1. Upload files
@@ -922,3 +923,89 @@ with tab9:
                 else:
                     st.balloons()
                     st.success("🎉 Tuyệt vời! Tất cả các mã định danh trong Excel đều trùng khớp hoàn toàn với các file PDF bạn đã tải lên!")
+                    
+with tab10:
+    st.header("📦 Gom & Nén PDF Theo Danh Sách Excel (như Ryders)")
+    st.write("Tìm các file PDF có tên nằm trong danh sách Excel, gộp lại và đóng gói thành file ZIP.")
+
+    import os
+    import zipfile
+    import pandas as pd
+
+    # 1. Nhập thông tin đầu vào
+    col1, col2 = st.columns(2)
+    with col1:
+        excel_file = st.file_uploader("👉 Chọn file Excel danh sách:", type=["xlsx", "xls"], key="excel_tab10")
+    with col2:
+        folder_path = st.text_input("📁 Nhập đường dẫn thư mục chứa các file PDF:", placeholder="Ví dụ: D:/ChungNhan/PDF_Goc")
+
+    if excel_file and folder_path:
+        try:
+            # Đọc file Excel để lấy tên các cột
+            df = pd.read_excel(excel_file)
+            columns = df.columns.tolist()
+            
+            # Chọn cột chứa mã
+            selected_col = st.selectbox("🎯 Chọn cột chứa Mã Giấy Chứng Nhận:", columns)
+            
+            # Tên file zip đầu ra
+            zip_name = st.text_input("📝 Tên file nén ZIP đầu ra (không cần ghi .zip):", value="Ket_Qua_Gom_PDF")
+
+            if st.button("🚀 Tiến hành Gom và Nén File", type="primary"):
+                # Kiểm tra thư mục hợp lệ
+                if not os.path.exists(folder_path):
+                    st.error("❌ Đường dẫn thư mục không tồn tại! Vui lòng kiểm tra lại.")
+                else:
+                    # Lấy danh sách mã chứng nhận từ Excel (bỏ trống, bỏ trùng)
+                    excel_codes = df[selected_col].dropna().astype(str).str.strip().unique()
+                    
+                    # Lấy tất cả file PDF trong thư mục
+                    all_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.pdf')]
+                    
+                    matched_files = []
+                    missing_codes = []
+
+                    # Tạo thanh tiến trình (Progress Bar)
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    # Thuật toán đối chiếu
+                    for index, code in enumerate(excel_codes):
+                        # Cập nhật trạng thái chạy
+                        percent = int((index + 1) / len(excel_codes) * 100)
+                        progress_bar.progress(percent)
+                        status_text.text(f"🔍 Đang đối chiếu mã: {code}")
+
+                        # Tìm file PDF chứa mã đó trong tên
+                        found = False
+                        for file_name in all_files:
+                            if code in file_name: # Tìm kiếm tương đối (chứa mã là được)
+                                matched_files.append(os.path.join(folder_path, file_name))
+                                found = True
+                        
+                        if not found:
+                            missing_codes.append(code)
+
+                    # Tiến hành nén ZIP nếu tìm thấy file
+                    if matched_files:
+                        output_zip_path = os.path.join(folder_path, f"{zip_name}.zip")
+                        
+                        status_text.text("📦 Đang đóng gói các file PDF vào file nén ZIP...")
+                        with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for file_path in matched_files:
+                                # Chỉ lấy tên file để khi giải nén không bị đẻ thêm thư mục con
+                                zipf.write(file_path, os.path.basename(file_path))
+
+                        # Kết quả hiển thị trực quan
+                        st.success(f"🎉 Đã hoàn thành! Đã gom {len(matched_files)} file PDF.")
+                        st.info(f"💾 File nén đã được lưu tại: `{output_zip_path}`")
+                        
+                        # Hiện danh sách file bị thiếu nếu có
+                        if missing_codes:
+                            with st.expander(f"⚠️ Có {len(missing_codes)} mã trong Excel KHÔNG tìm thấy file PDF tương ứng"):
+                                st.write(missing_codes)
+                    else:
+                        st.warning("😭 Không tìm thấy file PDF nào trùng khớp với danh sách trong Excel!")
+                        
+        except Exception as e:
+            st.error(f"❌ Có lỗi xảy ra khi đọc file Excel: {str(e)}")                    
