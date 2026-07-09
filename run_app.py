@@ -5,9 +5,9 @@ import time
 import threading
 import webbrowser
 import signal
+import subprocess
+import urllib.request
 import streamlit.web.cli as stcli
-from streamlit.web.server.server import Server
-from tornado.ioloop import PeriodicCallback
 
 # 🔥 ĐÃ THÊM: Cấu hình ghi log tự động ra file khi ẩn Terminal
 if getattr(sys, 'frozen', False):
@@ -24,39 +24,34 @@ def open_browser():
     time.sleep(3)
     webbrowser.open("http://localhost:8501")
 
-def check_browser_connections():
-    """Kiểm tra số lượng tab trình duyệt kết nối đến Server để tự hủy tiến trình"""
-    try:
-        server = Server.get_current()
-        if server is not None:
-            active_connections = len(server._browser_connections)
-            
-            # Nếu người dùng tắt hết toàn bộ tab hoặc đóng trình duyệt (số kết nối về 0)
-            if active_connections == 0:
-                print("🛑 [TỰ ĐỘNG TẮT] Không còn trình duyệt kết nối. Hệ thống đang tiến hành đóng hoàn toàn tiến trình chạy ngầm...")
-                # Giải phóng file log trước khi thoát để tránh crash dữ liệu
-                if getattr(sys, 'frozen', False):
-                    sys.stdout.close()
-                
-                # Thực hiện kill dứt điểm tiến trình hiện tại trên Windows
-                os.kill(os.getpid(), signal.SIGTERM)
-                sys.exit(0)
-    except Exception as e:
-        pass
-
 def start_auto_shutdown_monitor():
-    """Đợi Streamlit Server khởi động xong rồi gắn bộ đếm chu kỳ kiểm tra kết nối"""
-    try:
-        # Chờ 6 giây để server lên luồng ổn định và người dùng mở được tab trình duyệt đầu tiên
-        time.sleep(6) 
-        server = Server.get_current()
-        if server is not None:
-            loop = server._ioloop
-            # Cứ mỗi 3000ms (3 giây) chạy hàm kiểm tra kết nối 1 lần dựa trên vòng lặp ioloop của Tornado
-            loop.add_callback(lambda: PeriodicCallback(check_browser_connections, 3000).start())
-            print("🚀 [GIÁM SÁT THÀNH CÔNG] Đã kích hoạt chốt chặn tự hủy tự động khi tắt trình duyệt.")
-    except Exception as e:
-        print(f"⚠️ [GIÁM SÁT LỖI] Không thể kích hoạt bộ tự hủy: {e}")
+    """
+    GIẢI PHÁP AN TOÀN: Kiểm tra cổng kết nối mạng bằng urllib tiêu chuẩn.
+    Nếu người dùng tắt trình duyệt, server sẽ ngắt kết nối thực tế -> Kích hoạt tự hủy.
+    """
+    # Chờ 10 giây để người dùng mở hẳn tab trình duyệt đầu tiên lên thành công
+    time.sleep(10)
+    
+    consecutive_failures = 0
+    while True:
+        time.sleep(4)  # Cứ mỗi 4 giây kiểm tra tình trạng app một lần
+        try:
+            # Gửi một request cực nhẹ đến trang chủ của App ngầm
+            with urllib.request.urlopen("http://localhost:8501", timeout=2) as response:
+                if response.status == 200:
+                    consecutive_failures = 0  # Kết nối bình thường -> Reset bộ đếm lỗi
+        except Exception:
+            # Nếu không thể kết nối đến cổng (Trình duyệt đóng hoặc sập)
+            consecutive_failures += 1
+            
+        # Nếu mất kết nối liên tiếp 3 lần (khoảng 12 giây), khẳng định người dùng đã tắt hoàn toàn
+        if consecutive_failures >= 3:
+            print("🛑 [TỰ ĐỘNG TẮT] Trình duyệt đã đóng. Tiến hành giải phóng bộ nhớ và tắt Task Manager...")
+            if getattr(sys, 'frozen', False):
+                sys.stdout.close()
+            # Ra lệnh cho hệ điều hành diệt dứt điểm tiến trình ngầm này
+            os.kill(os.getpid(), signal.SIGTERM)
+            sys.exit(0)
 
 if __name__ == "__main__":
     if getattr(sys, 'frozen', False):
@@ -78,7 +73,7 @@ if __name__ == "__main__":
     # Khởi chạy luồng phụ mở trình duyệt tự động
     threading.Thread(target=open_browser, daemon=True).start()
     
-    # 🔥 THÊM CHỐT CHẶN: Khởi chạy luồng phụ giám sát trạng thái tab trình duyệt
+    # Khởi chạy luồng phụ giám sát sự sống của cổng 8501 bằng thư viện hệ thống
     threading.Thread(target=start_auto_shutdown_monitor, daemon=True).start()
     
     # Kích hoạt máy chủ Streamlit gốc
