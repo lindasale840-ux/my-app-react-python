@@ -9,3 +9,4 @@ pytesseract
 ocrmypdf
 pypdf
 cryptography
+tornado
