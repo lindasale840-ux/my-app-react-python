@@ -5,10 +5,12 @@ import zipfile
 from pathlib import Path
 import os
 import time
+import pandas as pd
 
 # Import cả 2 hàm xử lý của Tab 1 và Tab 2 độc lập từ Service của bạn
 from services.scan_rename_service import run_scan_rename, run_auto_split_rename
-
+from services.extract_requested_gcn_service import run_requested_gcn_extractor_pure_simple
+from services.scan_rename_service import process_page_ocr
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -47,9 +49,12 @@ if "reset_counter_tab1" not in st.session_state:
     st.session_state.reset_counter_tab1 = 0
 if "reset_counter_tab2" not in st.session_state:
     st.session_state.reset_counter_tab2 = 0
+# 🔥 THÊM DÒNG NÀY CHO TAB 3:
+if "reset_counter_tab3" not in st.session_state:
+    st.session_state.reset_counter_tab3 = 0    
 
 # Tạo cấu trúc 2 Tab
-tab1, tab2 = st.tabs(["📄 Tab 1: Đổi tên file đã tách", "⚡ Tab 2: Tự động tách & Đổi tên (Nâng cao)"])
+tab1, tab2, tab3 = st.tabs(["📄 Tab 1: Đổi tên file đã tách", "⚡ Tab 2: Tự động tách & Đổi tên (Nâng cao)","⚡ Tab 3: Tách PDF theo số giấy chứng nhận yêu cầu"])
 
 # Cấu hình danh mục kiểu đặt tên
 naming_options = {
@@ -221,5 +226,87 @@ with tab2:
                 pass
             try:
                 os.unlink(excel_path)
+            except:
+                pass
+            
+# ==============================================================================
+# TAB 3: ĐỊNH VỊ NHANH VỊ TRÍ GIẤY CHỨNG NHẬN (BẢN ĐƠN GIẢN NGUYÊN BẢN)
+# ==============================================================================
+with tab3:
+    st.markdown("### 📊 Bản đồ định vị vị trí trang Giấy chứng nhận")
+    st.info("⚡ Thuật toán Fast Skip Scan: Hệ thống sẽ quét nhảy cóc hình ảnh để dò tìm dấu vết nhanh, giúp bạn tìm ra ngay số trang của các mã GCN cần tra cứu mà không phải đợi quét toàn bộ file nặng.")
+
+    # 1. Vùng tải file PDF Tổng
+    uploaded_pdf_t3 = st.file_uploader(
+        label="Chọn file PDF Tổng chưa tách (Tab 3)",
+        type=["pdf"],
+        accept_multiple_files=False,
+        key=f"tab3_pdf_{st.session_state.reset_counter_tab3}"
+    )
+
+    # 2. Vùng nhập danh sách mã cần tra cứu nhanh
+    requested_gcn_input = st.text_area(
+        label="Nhập danh sách mã Giấy chứng nhận cần định vị (Mỗi mã nằm trên 1 dòng riêng biệt):",
+        placeholder="Ví dụ:\nC202605-E1846\nC202605-E1870",
+        height=180,
+        key=f"tab3_gcn_{st.session_state.reset_counter_tab3}"
+    )
+
+    # 3. Khu vực điều khiển hành động
+    col_run_t3, col_reset_t3 = st.columns([3, 1])
+    
+    with col_reset_t3:
+        if st.button("🗑️ Làm mới vùng nhập", key="btn_reset_t3", use_container_width=True):
+            st.session_state.reset_counter_tab3 += 1
+            st.rerun()
+
+    with col_run_t3:
+        run_t3 = st.button("🚀 Bắt đầu định vị nhanh", key="btn_run_t3", use_container_width=True, type="primary")
+
+    # 4. Logic xử lý khi bấm nút chạy
+    if run_t3:
+        if not uploaded_pdf_t3:
+            st.error("⚠️ Vui lòng tải lên file PDF Tổng để xử lý.")
+            st.stop()
+        if not requested_gcn_input.strip():
+            st.error("⚠️ Vui lòng nhập ít nhất một mã Giấy chứng nhận cần định vị.")
+            st.stop()
+
+        try:
+            # Tạo thư mục tạm lưu file PDF tổng đầu vào trên ổ đĩa
+            temp_dir_t3 = tempfile.mkdtemp()
+            pdf_total_path_t3 = Path(temp_dir_t3) / uploaded_pdf_t3.name
+            with open(pdf_total_path_t3, "wb") as f:
+                f.write(uploaded_pdf_t3.getvalue())
+
+            # Hiển thị trạng thái chờ xử lý cho người dùng
+            with st.spinner("⏳ Hệ thống đang chạy thuật toán Fast Skip Scan để dò tìm vị trí..."):
+                # Gọi chính xác hàm dịch vụ nguyên bản mà bạn đã gửi đối chiếu
+                result_buffer, msg = run_requested_gcn_extractor_pure_simple(
+                    pdf_total_path=str(pdf_total_path_t3),
+                    requested_gcn_text=requested_gcn_input,
+                    process_ocr_func=process_page_ocr  # Hàm OCR lõi sẵn có của bạn
+                )
+
+            # Xuất sản phẩm đầu ra khi chạy thành công
+            if result_buffer:
+                st.success(msg)
+                st.download_button(
+                    label="📥 Tải Báo Cáo Vị Trí Trang (.XLSX)",
+                    data=result_buffer.getvalue(),
+                    file_name=f"BaoCao_ViTri_GCN_{int(time.time())}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            else:
+                st.error(msg)
+
+        except Exception as e:
+            st.exception(e)
+        finally:
+            # Giải phóng hoàn toàn thư mục tạm để không làm đầy ổ đĩa cứng
+            try:
+                import shutil
+                shutil.rmtree(temp_dir_t3)
             except:
                 pass

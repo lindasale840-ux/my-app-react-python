@@ -276,25 +276,33 @@ def run_auto_split_rename(pdf_total_path, excel_path, naming_type="ten_tb"):
     print("\n📦 Đang tiến hành gộp cụm trang phụ lục và trang trống...")
     page_groups = []
     current_group = None
-
+    consecutive_none_count = 0  # Biến đếm số trang None liên tiếp trong cụm hiện tại
+    
     for result in page_results:
         gcn = result['gcn']
         page_num = result['page_num']
 
         if gcn:
+            consecutive_none_count = 0  # Reset bộ đếm khi gặp mã mới
             if current_group is None:
-                current_group = {'gcn': gcn, 'pages': [page_num]}
+                current_group = {'gcn': gcn, 'pages': [page_num], 'requires_check': False}
             elif current_group['gcn'] == gcn:
                 current_group['pages'].append(page_num)
             else:
                 page_groups.append(current_group)
-                current_group = {'gcn': gcn, 'pages': [page_num]}
+                current_group = {'gcn': gcn, 'pages': [page_num], 'requires_check': False}
         else:
             if current_group is None:
-                current_group = {'gcn': f"Khong_Xac_Dinh_{page_num+1}", 'pages': [page_num]}
+                current_group = {'gcn': f"Khong_Xac_Dinh_{page_num+1}", 'pages': [page_num], 'requires_check': False}
                 print(f"⚠️ Trang {page_num+1}: Định dạng trang rác đầu file tổng.")
             else:
+                consecutive_none_count += 1
                 current_group['pages'].append(page_num)
+                
+                # CHỈ GẮN CỜ khi xuất hiện từ 2 trang trống/None liên tiếp trở lên trong cùng 1 cụm
+                # Nghĩa là đã qua trang trắng cuối (1 trang) mà vẫn tiếp tục đụng thêm trang None (trang đầu bộ mới bị hụt)
+                if consecutive_none_count >= 2:
+                    current_group['requires_check'] = True
 
     if current_group:
         page_groups.append(current_group)
@@ -311,7 +319,8 @@ def run_auto_split_rename(pdf_total_path, excel_path, naming_type="ten_tb"):
         for group in page_groups:
             gcn_key = group['gcn']
             pages = group['pages']
-
+            requires_check = group.get('requires_check', False) # Lấy cờ cảnh báo
+            
             new_doc = fitz.open()
             for p_idx in pages:
                 new_doc.insert_pdf(doc, from_page=p_idx, to_page=p_idx)
@@ -441,6 +450,10 @@ def run_auto_split_rename(pdf_total_path, excel_path, naming_type="ten_tb"):
             if not final_filename:
                 final_filename = f"GCN_{gcn_key}"
                 
+            # ĐÍNH KÈM HẬU TỐ CẢNH BÁO NẾU CÓ NGHI VẤN NUỐT NHẦM HỒ SƠ DO LỖI OCR 5%
+            if requires_check and "Khong_Xac_Dinh" not in gcn_key:
+                final_filename = f"{final_filename}_CHECK_OCR"
+                    
             # ======================================================
             # CHỐNG TRÙNG FILE TRÊN RAM (ĐÃ ĐỒNG BỘ)
             # ======================================================
