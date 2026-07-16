@@ -71,6 +71,11 @@ naming_options = {
     "Tên + Mã quản lý": "ten_ma_ql",
     "Tên trước dấu / + Mã quản lý": "ten_truoc_slash_ma_ql",
     "Tên sau dấu / + Mã quản lý": "ten_sau_slash_ma_ql",
+    "Tên thiết bị + GCN":"ten_va_so_gcn",
+    "Mã quản lý hoặc mã xuất xưởng":"ma_ql_hoac_ma_xx",
+    "Mã xuất xưởng hoặc mã quản lý":"ma_xx_hoac_ma_ql",
+    "Tên+mql hoặc Tên+mxx":"ten_ma_ql_hoac_ten_ma_xx",
+    "Tên+mxx hoặc Tên+mql":"ten_ma_xx_hoac_ten_ma_ql"
 }
 
 # ==============================================================================

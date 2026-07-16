@@ -398,6 +398,78 @@ def run_auto_split_rename(pdf_total_path, excel_path, naming_type="ten_tb"):
                         else:
                             final_filename = ten_sau_slash_clean if ten_sau_slash_clean else (ma_ql_clean if ma_ql_clean else f"ThietBi_{gcn}")
 
+                    # 🌟 LỰA CHỌN MỚI 1: Tên + Mã quản lý (Ưu tiên) HOẶC Tên + Mã xuất xưởng
+                    elif naming_type == "ten_ma_ql_hoac_ten_ma_xx":
+                        gcn_clean = clean_filename(gcn)
+                        
+                        # Bước 1: Ưu tiên ghép Tên + Mã quản lý (Loại trừ thêm trường hợp là "/" hoặc "_")
+                        if ten_clean and ma_ql_clean and ma_ql_clean != "/" and ma_ql_clean != "_":
+                            final_filename = f"{ten_clean}_{ma_ql_clean}"
+                        # Bước 2: Nếu không có Mã quản lý, ghép Tên + Mã xuất xưởng (Loại trừ cả "/", "_" và "nan")
+                        elif ten_clean and ma_xuat_xuong_clean and ma_xuat_xuong_clean != "/" and ma_xuat_xuong_clean != "_" and ma_xuat_xuong_clean.lower() != "nan":
+                            final_filename = f"{ten_clean}_{ma_xuat_xuong_clean}"
+                        # Bước 3: Nếu chỉ có Tên thiết bị
+                        elif ten_clean:
+                            final_filename = ten_clean
+                        # Bước 4: Cứu cánh cuối cùng nếu trống tất cả
+                        else:
+                            final_filename = gcn_clean if gcn_clean else f"ThietBi_{gcn}"
+
+
+                    # 🌟 LỰA CHỌN MỚI 2: Tên + Mã xuất xưởng (Ưu tiên) HOẶC Tên + Mã quản lý
+                    elif naming_type == "ten_ma_xx_hoac_ten_ma_ql":
+                        gcn_clean = clean_filename(gcn)
+                        
+                        # Bước 1: Ưu tiên ghép Tên + Mã xuất xưởng
+                        if ten_clean and ma_xuat_xuong_clean and ma_xuat_xuong_clean != "/" and ma_xuat_xuong_clean != "_" and ma_xuat_xuong_clean.lower() != "nan":
+                            final_filename = f"{ten_clean}_{ma_xuat_xuong_clean}"
+                        # Bước 2: Nếu không có Mã xuất xưởng, ghép Tên + Mã quản lý
+                        elif ten_clean and ma_ql_clean and ma_ql_clean != "/" and ma_ql_clean != "_":
+                            final_filename = f"{ten_clean}_{ma_ql_clean}"
+                        # Bước 3: Nếu chỉ có Tên thiết bị
+                        elif ten_clean:
+                            final_filename = ten_clean
+                        # Bước 4: Cứu cánh cuối cùng nếu trống tất cả
+                        else:
+                            final_filename = gcn_clean if gcn_clean else f"ThietBi_{gcn}"
+                            
+                            
+                    # 🌟 CẬP NHẬT AN TOÀN: Ưu tiên Mã quản lý, nếu trống (hoặc là "/") thì lấy Mã xuất xưởng
+                    elif naming_type == "ma_ql_hoac_ma_xx":
+                        gcn_clean = clean_filename(gcn)
+                        
+                        # ĐÃ SỬA: Kiểm tra thêm trường hợp mã quản lý bị biến thành "_"
+                        if ma_ql_clean and ma_ql_clean != "/" and ma_ql_clean != "_":
+                            final_filename = ma_ql_clean
+                        # ĐÃ SỬA: Kiểm tra thêm trường hợp mã xuất xưởng bị biến thành "_"
+                        elif ma_xuat_xuong_clean and ma_xuat_xuong_clean != "/" and ma_xuat_xuong_clean != "_" and ma_xuat_xuong_clean.lower() != "nan":
+                            final_filename = ma_xuat_xuong_clean
+                        else:
+                            # Nếu cả 2 đều trống hoặc chỉ có dấu "/", lấy số GCN làm cứu cánh
+                            final_filename = gcn_clean if gcn_clean else f"ThietBi_{gcn}"
+
+                    # 🌟 CẬP NHẬT AN TOÀN: Ưu tiên Mã xuất xưởng, nếu trống (hoặc là "/") thì lấy Mã quản lý
+                    elif naming_type == "ma_xx_hoac_ma_ql":
+                        gcn_clean = clean_filename(gcn)
+                        
+                        # ĐÃ SỬA: Kiểm tra thêm trường hợp mã xuất xưởng bị biến thành "_"
+                        if ma_xuat_xuong_clean and ma_xuat_xuong_clean != "/" and ma_xuat_xuong_clean != "_" and ma_xuat_xuong_clean.lower() != "nan":
+                            final_filename = ma_xuat_xuong_clean
+                        # ĐÃ SỬA: Kiểm tra thêm trường hợp mã quản lý bị biến thành "_"
+                        elif ma_ql_clean and ma_ql_clean != "/" and ma_ql_clean != "_":
+                            final_filename = ma_ql_clean
+                        else:
+                            final_filename = gcn_clean if gcn_clean else f"ThietBi_{gcn}"
+                    
+                    # 🌟 CHÈN VÀO ĐÂY: Nhánh này nằm chung xuồng với các nhánh cũ, không lo bị ghi đè!
+                    elif naming_type == "ten_va_so_gcn":
+                        gcn_clean = clean_filename(gcn)
+                        if ten_clean and gcn_clean:
+                            final_filename = f"{ten_clean}_{gcn_clean}"
+                        elif ten_clean:
+                            final_filename = ten_clean
+                        else:
+                            final_filename = gcn_clean if gcn_clean else f"ThietBi_{gcn}"
                     # ---- Các option cũ của Tab 1 ----
                     elif naming_type == "ten_tb":
                         if ten_clean and kieu_clean:
