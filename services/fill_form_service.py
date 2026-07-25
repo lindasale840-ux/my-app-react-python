@@ -102,14 +102,27 @@ def extract_code_from_pdf(pdf_file_obj):
     except Exception as e:
         return ""
 
+# ==============================================================================
+# QUÉT DỮ LIỆU TỪ TỆP PDF (ĐÃ BỔ SUNG GHI LOG CHUẨN CODE GỐC)
+# ==============================================================================
 def scan_pdf_files(pdf_files):
-    """Tạo Dictionary map: {Mã_GCN: Mã_Tài_Liệu} từ danh sách tệp PDF"""
+    """Tạo Dictionary map: {Mã_GCN: Mã_Tài_Liệu} và danh sách Log quét PDF"""
     pdf_map = {}
-    for file in pdf_files:
+    pdf_logs = []
+    
+    total_files = len(pdf_files)
+    pdf_logs.append(f"--- ĐANG QUÉT {total_files} FILE PDF TRONG THƯ MỤC ---")
+    
+    for idx, file in enumerate(pdf_files, 1):
         ma_gcn = os.path.splitext(file.name)[0].strip()
         ma_tai_lieu = extract_code_from_pdf(file)
         pdf_map[ma_gcn] = ma_tai_lieu
-    return pdf_map
+        
+        # Định dạng dòng log giống code Python gốc
+        ma_tl_display = ma_tai_lieu.replace('\n', ' | ') if ma_tai_lieu else ""
+        pdf_logs.append(f"[{idx}/{total_files}] PDF: {ma_gcn} -> Mã TL (I20): [{ma_tl_display}]")
+        
+    return pdf_map, pdf_logs
 
 # ==============================================================================
 # HÀM BỎ BIẾN ĐỔI CHUỖI THEO LOẠI (TRANSFORMATION ENGINE)
@@ -157,49 +170,54 @@ def apply_transformation(val, transform_type, raw_id="", pdf_data_map=None):
 # ==============================================================================
 def run_generate_forms(file_tong_bytes, file_form_bytes, pdf_files, mapping_config):
     """
-    Xử lý tạo các file Form Excel và đóng gói vào file ZIP (Kèm file Log đối chiếu PDF)
+    Xử lý tạo các file Form Excel và đóng gói vào file ZIP (Log chuẩn 100% định dạng cũ)
     """
     try:
-        # Danh sách lưu các dòng nhật ký (Log)
         log_lines = []
-        log_lines.append(f"=== NHẬT KÝ ĐỐI CHIẾU DỮ LIỆU PDF & EXCEL ===")
-        log_lines.append(f"Thời gian thực hiện: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-        # 1. Quét PDF trước nếu có
+        # 1. Quét PDF trước nếu có & Lấy danh sách log PDF
         pdf_data_map = {}
         if pdf_files:
-            pdf_data_map = scan_pdf_files(pdf_files)
-            log_lines.append(f"-> Đã quét tổng cộng {len(pdf_files)} tệp PDF.")
+            pdf_data_map, pdf_scan_logs = scan_pdf_files(pdf_files)
+            log_lines.extend(pdf_scan_logs)
+            log_lines.append("") # Dòng trống phân cách
         else:
-            log_lines.append("-> CẢNH BÁO: Không có tệp PDF nào được tải lên.\n")
+            log_lines.append("--- KHÔNG CÓ FILE PDF NÀO ĐƯỢC TẢI LÊN ---\n")
 
         # 2. Đọc file Tổng
         df = pd.read_excel(file_tong_bytes)
         df = df.replace(r'^\s*/\s*$', 'NA', regex=True)
         
+        # Đếm tổng số dòng có dữ liệu hợp lệ để hiển thị [stt/tổng]
+        id_col = mapping_config.get("id_column")
+        valid_rows = [r for _, r in df.iterrows() if id_col in r and pd.notna(r[id_col]) and str(r[id_col]).strip() and str(r[id_col]).strip().lower() != 'nan']
+        total_excel_files = len(valid_rows)
+
+        log_lines.append("--- ĐANG ĐỌC FILE TỔNG EXCEL VÀ ĐIỀN DỮ LIỆU ---")
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_dir = tempfile.mkdtemp()
         generated_files = []
 
-        log_lines.append("\n=== CHI TIẾT TRẠNG THÁI TỪNG FILE ===")
-
         # 3. Lặp từng dòng dữ liệu trong File Tổng
+        file_count = 0
         for idx, row in df.iterrows():
-            id_col = mapping_config.get("id_column")
-            if not id_col or id_col not in row or pd.isna(row[id_col]):
+            if id_col not in row or pd.isna(row[id_col]):
                 continue
             
             raw_id = str(row[id_col]).strip()
             if not raw_id or raw_id.lower() == 'nan':
                 continue
 
+            file_count += 1
+
             # Mở workbook form mẫu
             file_form_bytes.seek(0)
             wb = load_workbook(file_form_bytes)
             ws = wb.active
 
-            # Lưu log vết kiểm tra PDF cho dòng này
-            pdf_status_info = []
+            # Biến lưu giá trị kết quả tra cứu được ở ô I20 (Mã TL) để đưa vào Log
+            i20_val_log = ""
 
             # --- A. Xử lý danh sách Dynamic Mapping Pairs ---
             for pair in mapping_config.get("dynamic_pairs", []):
@@ -212,31 +230,29 @@ def run_generate_forms(file_tong_bytes, file_form_bytes, pdf_files, mapping_conf
                     raw_val = row[col_name]
                     final_val = apply_transformation(raw_val, transform_type, raw_id=raw_id, pdf_data_map=pdf_data_map)
 
-                    # Ghi nhận log nếu đây là cột tra cứu PDF
-                    if transform_type == "Tra cứu PDF theo Mã GCN":
-                        ma_gcn = clean_slash(raw_val)
-                        if not ma_gcn or ma_gcn == "NA":
-                            pdf_status_info.append("Không có Mã GCN")
-                        elif ma_gcn in pdf_data_map:
-                            if pdf_data_map[ma_gcn]:
-                                pdf_status_info.append(f" [Thành công] Tìm thấy PDF cho GCN '{ma_gcn}'")
-                            else:
-                                pdf_status_info.append(f" [Cảnh báo] Có file PDF '{ma_gcn}' nhưng không trích xuất được mã Mục 4")
-                        else:
-                            pdf_status_info.append(f"❌ [THIẾU PDF] Không tìm thấy file PDF tương ứng với Mã GCN '{ma_gcn}'")
+                    # Bắt giá trị tra cứu để hiển thị đúng cột I20 trong log
+                    if transform_type == "Tra cứu PDF theo Mã GCN" or "I20" in target_cells:
+                        i20_val_log = final_val.replace('\n', ' | ')
 
                     for cell_name in target_cells:
                         ws[cell_name] = final_val
                         set_wrap_text(ws[cell_name])
                         adjust_row_height(ws, row_idx=get_row_index(cell_name), texts=[final_val])
 
-            # Ghi dòng nhật ký cho Mã QL hiện tại
-            log_detail = f"- Mã QL: {raw_id}"
-            if pdf_status_info:
-                log_detail += " | " + " ; ".join(pdf_status_info)
-            else:
-                log_detail += " | Tạo file thành công"
-            log_lines.append(log_detail)
+            # --- B. Xử lý Rule Cố định Đặc biệt (Đánh tích ü - Chạy sau cùng) ---
+            rules = mapping_config.get("special_rules", {})
+            if rules.get("checkmark_logic", {}).get("active"):
+                cell_k = rules["checkmark_logic"].get("cell_option1", "K14")
+                cell_n = rules["checkmark_logic"].get("cell_option2", "N14")
+                
+                parts = raw_id.split('.')
+                ws[cell_k] = ""
+                ws[cell_n] = ""
+                
+                if len(parts) >= 3 and parts[2].strip().startswith('6'):
+                    ws[cell_k] = "ü"
+                else:
+                    ws[cell_n] = "ü"
 
             # Lưu file Excel theo Mã QL
             safe_filename = clean_filename(raw_id)
@@ -245,10 +261,14 @@ def run_generate_forms(file_tong_bytes, file_form_bytes, pdf_files, mapping_conf
             wb.close()
             generated_files.append(out_file_path)
 
+            # Ghi dòng Log theo đúng định dạng chuẩn code cũ:
+            # [1/143] Hoàn tất: ACS1.VMQ.501.xlsx (I20: '')
+            log_lines.append(f"[{file_count}/{total_excel_files}] Hoàn tất: {safe_filename}.xlsx (I20: '{i20_val_log}')")
+
         if not generated_files:
             return None, "Không tạo được file nào. Vui lòng kiểm tra lại cột định danh Mã quản lý."
 
-        # Tạo file Log (.txt) trong thư mục tạm
+        # Tạo file Log_Doi_Chieu_PDF.txt trong thư mục tạm
         log_file_path = os.path.join(temp_dir, "Log_Doi_Chieu_PDF.txt")
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write("\n".join(log_lines))
@@ -256,10 +276,8 @@ def run_generate_forms(file_tong_bytes, file_form_bytes, pdf_files, mapping_conf
         # 4. Nén tất cả các file Excel + File Log vào ZIP
         zip_path = os.path.join(tempfile.gettempdir(), f"Danh_Sach_Form_Hoan_Thanh_{timestamp}.zip")
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Thêm các file Excel
             for file_path in generated_files:
                 zipf.write(file_path, arcname=os.path.basename(file_path))
-            # Thêm file Log vào file ZIP
             zipf.write(log_file_path, arcname="Log_Doi_Chieu_PDF.txt")
 
         # Dọn dẹp temp
