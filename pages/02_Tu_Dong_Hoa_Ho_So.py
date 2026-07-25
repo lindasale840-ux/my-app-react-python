@@ -13,6 +13,7 @@ from services.pdf_excel_compare_service import run_compare_pdf_excel
 from services.pdf_group_duplicate_service import (
     run_group_duplicate_files
 )
+from services.fill_form_service import run_generate_forms
 
 import sys
 import os
@@ -43,13 +44,14 @@ st.title(
     "📂 TỰ ĐỘNG HÓA HỒ SƠ"
 )
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
         "Ghép theo tên file",
         "Ghép theo Excel",
         "Đối chiếu PDF-Excel",
         "Gom hồ sơ trùng tên",
-        "Tạo hồ sơ hàng loạt"
+        "Tạo hồ sơ hàng loạt",
+        "Đổ dữ liệu vào form mẫu Excel"
     ]
 )
 
@@ -601,4 +603,167 @@ with tab4:
                 data=f.read(),
                 file_name="HoSo_Gom.zip",
                 mime="application/zip"
-            )            
+            )  
+            
+with tab6:
+    st.subheader("📑 Điền Form Excel & Trích xuất PDF Tự Động")
+    st.info("Thêm linh hoạt các cặp mapping và chọn trực tiếp Kiểu xử lý dữ liệu ngay trên giao diện.")
+
+    # ==============================================================================
+    # 1. TẢI FILE ĐẦU VÀO
+    # ==============================================================================
+    col1, col2 = st.columns(2)
+    with col1:
+        uploaded_file_tong = st.file_uploader("1. Select File Tổng dữ liệu Excel", type=["xlsx", "xls"], key="tab6_file_tong")
+        uploaded_file_form = st.file_uploader("2. Select File Form Mẫu Excel", type=["xlsx", "xls"], key="tab6_file_form")
+    
+    with col2:
+        uploaded_pdf_files = st.file_uploader("3. Select các tệp PDF đính kèm (nếu có)", type=["pdf"], accept_multiple_files=True, key="tab6_pdf_files")
+
+    if uploaded_file_tong and uploaded_file_form:
+        try:
+            df_preview = pd.read_excel(uploaded_file_tong, nrows=1)
+            excel_columns = list(df_preview.columns)
+        except Exception as e:
+            st.error(f"Không thể đọc file Tổng: {e}")
+            st.stop()
+
+        st.markdown("---")
+        st.subheader("⚙️ Cấu hình Ghép Cặp & Kiểu Xử Lý (Dynamic Mapping)")
+
+        # Cột định danh chính (Mã quản lý)
+        id_col = st.selectbox(
+            "🔑 Chọn cột chứa Mã Quản Lý (Dùng làm tên File Excel xuất ra):",
+            options=excel_columns,
+            index=min(27, len(excel_columns)-1) if len(excel_columns) > 27 else 0,
+            key="tab6_id_col"
+        )
+
+        # Danh sách các kiểu biến đổi logic hỗ trợ
+        TRANSFORM_OPTIONS = [
+            "Nguyên bản (Direct)",
+            "Cắt lấy phần sau dấu '/'",
+            "Tạo mã 'M' (Prefix M)",
+            "Định dạng Ngày (DD/MMM/YYYY)",
+            "Tra cứu PDF theo Mã GCN",
+            "Viết HOA toàn bộ",
+            "Viết thường toàn bộ",
+            "Đánh tích nhóm '6' (ü)"
+        ]
+
+        # Khởi tạo danh sách cặp mapping mặc định mang đầy đủ logic mẫu ban đầu của bạn
+        if "mapping_pairs" not in st.session_state:
+            st.session_state.mapping_pairs = [
+                {"excel_col": excel_columns[min(27, len(excel_columns)-1)], "transform_type": "Nguyên bản (Direct)", "target_cell": "J11"},
+                {"excel_col": excel_columns[min(26, len(excel_columns)-1)], "transform_type": "Nguyên bản (Direct)", "target_cell": "U11"},
+                {"excel_col": excel_columns[min(7, len(excel_columns)-1)], "transform_type": "Nguyên bản (Direct)", "target_cell": "U9"},
+                {"excel_col": excel_columns[min(6, len(excel_columns)-1)], "transform_type": "Nguyên bản (Direct)", "target_cell": "J10"},
+                {"excel_col": excel_columns[min(5, len(excel_columns)-1)], "transform_type": "Cắt lấy phần sau dấu '/'", "target_cell": "J9"},
+                {"excel_col": excel_columns[min(27, len(excel_columns)-1)], "transform_type": "Tạo mã 'M' (Prefix M)", "target_cell": "U10"},
+                {"excel_col": excel_columns[min(30, len(excel_columns)-1)] if len(excel_columns)>30 else excel_columns[0], "transform_type": "Định dạng Ngày (DD/MMM/YYYY)", "target_cell": "I18, G51"},
+                {"excel_col": excel_columns[min(31, len(excel_columns)-1)] if len(excel_columns)>31 else excel_columns[0], "transform_type": "Định dạng Ngày (DD/MMM/YYYY)", "target_cell": "I19"},
+                {"excel_col": excel_columns[min(25, len(excel_columns)-1)] if len(excel_columns)>25 else excel_columns[0], "transform_type": "Tra cứu PDF theo Mã GCN", "target_cell": "I20"},
+            ]
+
+        st.write("#### ➕ Danh sách các quy tắc Mapping")
+
+        # Nút Thêm Cặp Mới
+        if st.button("➕ Thêm Quy Tắc Mapping Mới", key="tab6_add_pair"):
+            st.session_state.mapping_pairs.append({
+                "excel_col": excel_columns[0], 
+                "transform_type": "Nguyên bản (Direct)", 
+                "target_cell": ""
+            })
+            st.rerun()
+
+        # Render từng hàng ghép cặp với 3 trường: Cột Nguồn | Kiểu Xử Lý | Ô Đích
+        pairs_to_remove = []
+        for idx, pair in enumerate(st.session_state.mapping_pairs):
+            c_col, c_trans, c_cell, c_del = st.columns([3, 3, 2, 1])
+            
+            with c_col:
+                current_col_idx = excel_columns.index(pair["excel_col"]) if pair["excel_col"] in excel_columns else 0
+                selected_col = st.selectbox(
+                    f"Cột File Tổng #{idx+1}",
+                    options=excel_columns,
+                    index=current_col_idx,
+                    key=f"tab6_col_{idx}"
+                )
+                st.session_state.mapping_pairs[idx]["excel_col"] = selected_col
+
+            with c_trans:
+                current_trans_idx = TRANSFORM_OPTIONS.index(pair["transform_type"]) if pair["transform_type"] in TRANSFORM_OPTIONS else 0
+                selected_trans = st.selectbox(
+                    f"Kiểu Xử Lý #{idx+1}",
+                    options=TRANSFORM_OPTIONS,
+                    index=current_trans_idx,
+                    key=f"tab6_trans_{idx}"
+                )
+                st.session_state.mapping_pairs[idx]["transform_type"] = selected_trans
+
+            with c_cell:
+                target_cell = st.text_input(
+                    f"Ô Form Mẫu #{idx+1}",
+                    value=pair["target_cell"],
+                    placeholder="VD: J11 hoặc I18, G51",
+                    key=f"tab6_cell_{idx}"
+                )
+                st.session_state.mapping_pairs[idx]["target_cell"] = target_cell
+
+            with c_del:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("❌", key=f"tab6_del_{idx}"):
+                    pairs_to_remove.append(idx)
+
+        # Xóa các dòng khi bấm nút ❌
+        if pairs_to_remove:
+            for idx in sorted(pairs_to_remove, reverse=True):
+                st.session_state.mapping_pairs.pop(idx)
+            st.rerun()
+
+        # ==============================================================================
+        # 3. QUY TẮC ĐẶC BIỆT RIÊNG CÔ ĐƠN (CHECKMARK ü)
+        # ==============================================================================
+        st.markdown("---")
+        with st.expander("🛠️ Cấu hình Tích Dấu Checkmark (ü)", expanded=False):
+            r5_active = st.checkbox("Bật quy tắc đánh dấu tích (ü) theo Mã Quản Lý", value=True, key="tab6_r5_act")
+            col_r5_a, col_r5_b = st.columns(2)
+            with col_r5_a:
+                r5_k = st.text_input("Ô đánh tích nếu chứa nhóm '6' (K14):", value="K14", key="tab6_r5_k")
+            with col_r5_b:
+                r5_n = st.text_input("Ô đánh tích cho nhóm còn lại (N14):", value="N14", key="tab6_r5_n")
+
+        # ==============================================================================
+        # 4. THỰC THI & TẢI KẾT QUẢ
+        # ==============================================================================
+        st.markdown("---")
+        if st.button("🚀 Bắt đầu Tạo Form & Đóng Gói ZIP", type="primary", key="tab6_run_btn"):
+            
+            mapping_config = {
+                "id_column": id_col,
+                "dynamic_pairs": st.session_state.mapping_pairs,
+                "special_rules": {
+                    "checkmark_logic": {"active": r5_active, "cell_option1": r5_k, "cell_option2": r5_n}
+                }
+            }
+
+            with st.spinner("Đang tự động đọc dữ liệu, điền Form Excel và nén ZIP..."):
+                zip_path, msg = run_generate_forms(
+                    file_tong_bytes=uploaded_file_tong,
+                    file_form_bytes=uploaded_file_form,
+                    pdf_files=uploaded_pdf_files if uploaded_pdf_files else [],
+                    mapping_config=mapping_config
+                )
+
+            if zip_path:
+                st.success(msg)
+                with open(zip_path, "rb") as f:
+                    st.download_button(
+                        label="📥 Tải File ZIP Kết Quả",
+                        data=f.read(),
+                        file_name=f"Form_Excel_Completed.zip",
+                        mime="application/zip",
+                        key="tab6_download_btn"
+                    )
+            else:
+                st.error(msg)                      

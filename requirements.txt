@@ -10,3 +10,4 @@ ocrmypdf
 pypdf
 cryptography
 tornado
+pdfplumber
