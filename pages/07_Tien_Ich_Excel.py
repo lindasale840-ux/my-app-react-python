@@ -26,6 +26,14 @@ from services.excel_audit_service import (
     run_data_audit
 )
 
+from services.find_missing_excel_files import (
+    find_missing_excel_files_v2
+)
+
+from services.filter_excel_files_by_list import (
+    filter_excel_files_by_list
+)
+
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -55,13 +63,15 @@ st.title(
     "📊 TIỆN ÍCH EXCEL"
 )
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
     [
         "VLOOKUP Siêu Tốc",
         "Data Cleaner",
         "So Sánh Excel",
         "🔎 Smart Search Excel",
-        "📊 Data Audit"
+        "📊 Data Audit",
+        "Đối chiếu tên Excel",
+        "Lọc file excel theo file tổng tên"
     ]
 )
 
@@ -1029,3 +1039,206 @@ with tab5:
 
                 st.error(msg)
 
+
+with tab6:
+    st.subheader("🔍 Tìm & Trích xuất file Excel còn thiếu")
+
+    # 1. Chọn chế độ đối chiếu bằng Radio Button
+    compare_mode = st.radio(
+        "Chọn nguồn dữ liệu để đối chiếu:",
+        options=["So sánh với Folder A", "So sánh với File Excel danh sách tổng"],
+        horizontal=True,
+        key="rad_compare_mode"
+    )
+
+    st.markdown("---")
+
+    uploaded_excel_a = None
+    uploaded_excel_list = None
+    selected_name_col = None
+
+    # 2. Khai báo Input tùy theo chế độ được chọn
+    if compare_mode == "So sánh với Folder A":
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            uploaded_excel_a = st.file_uploader(
+                "Folder A (Thư mục đối chiếu)",
+                type=["xlsx", "xls"],
+                accept_multiple_files=True,
+                key="compare_excel_a"
+            )
+            if uploaded_excel_a:
+                st.success(f"Folder A: {len(uploaded_excel_a)} file")
+
+        with col_b:
+            uploaded_excel_b = st.file_uploader(
+                "Folder B (Thư mục nguồn/thực tế)",
+                type=["xlsx", "xls"],
+                accept_multiple_files=True,
+                key="compare_excel_b_mode1"
+            )
+            if uploaded_excel_b:
+                st.success(f"Folder B: {len(uploaded_excel_b)} file")
+
+    else: # Chế độ: So sánh với File Excel danh sách tổng
+        col_list, col_b = st.columns(2)
+
+        with col_list:
+            uploaded_excel_list = st.file_uploader(
+                "File Excel danh sách tổng",
+                type=["xlsx", "xls"],
+                accept_multiple_files=False,
+                key="compare_excel_list"
+            )
+            
+            # Chọn cột chứa tên file trong Excel
+            if uploaded_excel_list:
+                st.success(f"File danh sách: {uploaded_excel_list.name}")
+                try:
+                    df_preview = pd.read_excel(uploaded_excel_list, nrows=1)
+                    selected_name_col = st.selectbox(
+                        "Cột chứa tên file Excel:",
+                        options=list(df_preview.columns),
+                        key="select_name_col_list"
+                    )
+                except Exception as e:
+                    st.error(f"Lỗi đọc file Excel: {str(e)}")
+
+        with col_b:
+            uploaded_excel_b = st.file_uploader(
+                "Folder chứa các file Excel thực tế",
+                type=["xlsx", "xls"],
+                accept_multiple_files=True,
+                key="compare_excel_b_mode2"
+            )
+            if uploaded_excel_b:
+                st.success(f"Folder thực tế: {len(uploaded_excel_b)} file")
+
+    st.markdown("---")
+
+    # 3. Nút bấm xử lý
+    if st.button("🚀 Bắt đầu đối chiếu & Trích xuất", key="btn_compare_excel"):
+
+        if not uploaded_excel_b:
+            st.error("Chưa chọn danh sách file Excel thực tế trong Thư mục!")
+            st.stop()
+
+        mode_key = "folder" if compare_mode == "So sánh với Folder A" else "excel_list"
+
+        if mode_key == "excel_list":
+            if not uploaded_excel_list:
+                st.error("Chưa chọn File Excel danh sách tổng")
+                st.stop()
+            if not selected_name_col:
+                st.error("Chưa chọn cột tên file trong Excel")
+                st.stop()
+            uploaded_excel_list.seek(0)
+
+        with st.spinner("Đang đối chiếu dữ liệu..."):
+            zip_path, msg = find_missing_excel_files_v2(
+                mode=mode_key,
+                files_b=uploaded_excel_b,
+                files_a=uploaded_excel_a,
+                excel_list_bytes=uploaded_excel_list,
+                name_col=selected_name_col
+            )
+
+        if zip_path:
+            st.success(msg)
+
+            with open(zip_path, "rb") as f:
+                st.download_button(
+                    "📥 Tải file ZIP kết quả đối chiếu",
+                    data=f.read(),
+                    file_name="Ket_Qua_Doi_Chieu_Excel.zip",
+                    mime="application/zip",
+                    key="dl_missing_excel_zip_v2"
+                )
+        else:
+            st.error(msg)
+            
+with tab7:
+    st.subheader("🎯 Lọc & Gom file Excel theo danh sách từ File Tổng")
+
+    # 1. Upload File tổng và Thư mục chứa file Excel thực tế
+    col_excel, col_folder = st.columns(2)
+
+    uploaded_excel_master = None
+    filter_name_col = None
+
+    with col_excel:
+        uploaded_excel_master = st.file_uploader(
+            "Tải lên File Excel Tổng (chứa danh sách tên)",
+            type=["xlsx", "xls"],
+            accept_multiple_files=False,
+            key="filter_excel_master"
+        )
+
+        # Chọn cột chứa tên file cần lọc
+        if uploaded_excel_master:
+            st.success(f"File tổng: {uploaded_excel_master.name}")
+            try:
+                df_preview = pd.read_excel(uploaded_excel_master, nrows=1)
+                filter_name_col = st.selectbox(
+                    "Cột chứa danh sách tên file cần lọc:",
+                    options=list(df_preview.columns),
+                    key="select_filter_name_col"
+                )
+            except Exception as e:
+                st.error(f"Lỗi đọc file Excel tổng: {str(e)}")
+
+    with col_folder:
+        uploaded_target_files = st.file_uploader(
+            "Tải lên Thư mục chứa các file Excel thực tế",
+            type=["xlsx", "xls"],
+            accept_multiple_files=True,
+            key="filter_target_files"
+        )
+        if uploaded_target_files:
+            st.success(f"Số lượng file thực tế: {len(uploaded_target_files)} file")
+
+    st.markdown("---")
+
+    # 2. Nút thực hiện lọc
+    if st.button("🚀 Bắt đầu lọc & Trích xuất file", key="btn_filter_excel"):
+
+        if not uploaded_excel_master:
+            st.error("Chưa chọn File Excel tổng chứa danh sách!")
+            st.stop()
+
+        if not filter_name_col:
+            st.error("Chưa chọn cột chứa tên file trong Excel tổng!")
+            st.stop()
+
+        if not uploaded_target_files:
+            st.error("Chưa chọn danh sách file Excel thực tế!")
+            st.stop()
+
+        # Đưa stream file về đầu
+        uploaded_excel_master.seek(0)
+
+        with st.spinner("Đang tiến hành lọc file theo danh sách..."):
+            zip_path, msg = filter_excel_files_by_list(
+                excel_list_bytes=uploaded_excel_master,
+                name_col=filter_name_col,
+                target_files=uploaded_target_files
+            )
+
+        # 3. Trả về kết quả & Nút tải về
+        if zip_path:
+            if "Cảnh báo" in msg:
+                st.warning(msg)
+            else:
+                st.success(msg)
+
+            with open(zip_path, "rb") as f:
+                st.download_button(
+                    "📥 Tải file ZIP các Excel đã lọc",
+                    data=f.read(),
+                    file_name="Danh_Sach_Excel_Da_Loc.zip",
+                    mime="application/zip",
+                    key="dl_filtered_excel_zip"
+                )
+        else:
+            st.error(msg)            
