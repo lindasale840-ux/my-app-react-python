@@ -15,6 +15,8 @@ from services.pdf_group_duplicate_service import (
 )
 from services.fill_form_service import run_generate_forms
 
+from services.pdf_rename_from_excel import rename_pdf_files
+
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -44,14 +46,15 @@ st.title(
     "📂 TỰ ĐỘNG HÓA HỒ SƠ"
 )
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
     [
         "Ghép theo tên file",
         "Ghép theo Excel",
         "Đối chiếu PDF-Excel",
         "Gom hồ sơ trùng tên",
         "Tạo hồ sơ hàng loạt",
-        "Đổ dữ liệu vào form mẫu Excel"
+        "Đổ dữ liệu vào form mẫu Excel",
+        "Đổi tên file pdf theo excel tương ứng"
     ]
 )
 
@@ -766,4 +769,120 @@ with tab6:
                         key="tab6_download_btn"
                     )
             else:
-                st.error(msg)                      
+                st.error(msg) 
+                
+with tab7:
+    st.subheader("🏷️ Đổi tên file PDF theo Excel")
+
+    # 1. Khai báo các Input Upload File
+    uploaded_excel = st.file_uploader(
+        "Tải lên file Excel tổng",
+        type=["xlsx", "xls"],
+        accept_multiple_files=False,
+        key="rename_excel"
+    )
+
+    uploaded_pdfs = st.file_uploader(
+        "Tải lên các file PDF cần đổi tên",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="rename_pdfs"
+    )
+
+    # Hiển thị thông báo số lượng file đã chọn
+    if uploaded_excel:
+        st.success(f"Dữ liệu Excel: {uploaded_excel.name}")
+
+    if uploaded_pdfs:
+        st.success(f"Danh sách PDF: {len(uploaded_pdfs)} file")
+
+    # 2. Xử lý đọc tiêu đề cột Excel để đưa vào Dropdown
+    match_col = None
+    primary_col = None
+    fallback_col = None
+
+    if uploaded_excel:
+        try:
+            # Đọc nhanh danh sách cột trong Excel
+            df_preview = pd.read_excel(uploaded_excel, nrows=1)
+            columns_list = list(df_preview.columns)
+
+            st.markdown("---")
+            st.markdown("##### ⚙️ Cấu hình cột đối chiếu & ghép tên")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                match_col = st.selectbox(
+                    "Cột khớp tên PDF cũ:",
+                    options=columns_list,
+                    key="rename_match_col",
+                    help="Cột chứa giá trị trùng với tên file PDF hiện tại"
+                )
+
+            with col2:
+                primary_col = st.selectbox(
+                    "Cột lấy tên (Ưu tiên 1):",
+                    options=columns_list,
+                    key="rename_primary_col",
+                    help="Giá trị cột này sẽ được ghép vào trước tên file cũ"
+                )
+
+            with col3:
+                fallback_col = st.selectbox(
+                    "Cột lấy tên (Dự phòng):",
+                    options=columns_list,
+                    key="rename_fallback_col",
+                    help="Dùng khi Cột Ưu tiên 1 bị trống hoặc chứa dấu '/'"
+                )
+
+        except Exception as e:
+            st.error(f"Lỗi đọc cấu trúc file Excel: {str(e)}")
+
+    st.markdown("---")
+
+    # 3. Nút bấm thực hiện đổi tên
+    if st.button("🚀 Bắt đầu đổi tên", key="btn_rename_pdf"):
+
+        # Validation kiểm tra đầu vào
+        if not uploaded_excel:
+            st.error("Chưa chọn file Excel tổng")
+            st.stop()
+
+        if not uploaded_pdfs:
+            st.error("Chưa chọn danh sách file PDF")
+            st.stop()
+
+        if not match_col or not primary_col or not fallback_col:
+            st.error("Vui lòng cấu hình đầy đủ các cột đối chiếu")
+            st.stop()
+
+        # Tiến hành xử lý
+        with st.spinner("Đang xử lý đổi tên các file PDF..."):
+            
+            # Đưa file Excel về đầu stream trước khi đọc lại trong backend
+            uploaded_excel.seek(0)
+            
+            # Gọi hàm xử lý backend
+            zip_path, msg = rename_pdf_files(
+                file_excel_bytes=uploaded_excel,
+                pdf_files=uploaded_pdfs,
+                match_col=match_col,
+                primary_name_col=primary_col,
+                fallback_name_col=fallback_col
+            )
+
+        # Trả về kết quả
+        if zip_path:
+            st.success(msg)
+
+            with open(zip_path, "rb") as f:
+                st.download_button(
+                    "📥 Tải file ZIP đã đổi tên",
+                    data=f.read(),
+                    file_name="Danh_Sach_PDF_Da_Doi_Ten.zip",
+                    mime="application/zip",
+                    key="dl_renamed_zip"
+                )
+        else:
+            st.error(msg)                                     
