@@ -2,10 +2,10 @@ import fitz  # PyMuPDF
 import os
 import zipfile
 import re
-import pandas as pd  # Đảm bảo môi trường đã cài: pip install pandas openpyxl
+import pandas as pd
 
 # ==============================================================================
-# 🎛️ BẢNG CẤU HÌNH TỌA ĐỘ TUYỆT ĐỐI CHO CÁC PHÂN HỆ NGÔN NGỮ (CHÍNH XÁC 100%)
+# CONFIG TỌA ĐỘ
 # ==============================================================================
 CONFIG_TRUNG_VIET = {
     "so_gcn":   [150, 175, 189],
@@ -22,9 +22,30 @@ CONFIG_TRUNG_ANH = {
 }
 
 # ==============================================================================
+# 🛠️ HÀM TÁCH TỪ KHÓA & KIỂM TRA THEO ĐÚNG LOGIC GỐC CỦA PYMUPDF
+# ==============================================================================
+def parse_keywords(keyword_input):
+    """Tách chuỗi nhập từ giao diện thành danh sách các từ khóa"""
+    if not keyword_input:
+        return []
+    keywords = re.split(r'[,;\n]+', str(keyword_input))
+    return [kw.strip() for kw in keywords if kw.strip()]
+
+def search_any_keyword_in_page(page, keyword_list):
+    """
+    SỬ DỤNG LẠI CHÍNH XÁC LOGIC CŨ (fitz.search_for)
+    Giúp tìm kiếm chuẩn xác vị trí từ khóa mà không bị nhận diện nhầm Header/Footer ở trang sau.
+    """
+    for kw in keyword_list:
+        # flags=1 là Case-Insensitive (không phân biệt hoa/thường) chuẩn của PyMuPDF
+        rects = page.search_for(kw, flags=1)
+        if rects:
+            return True
+    return False
+
+# ==============================================================================
 
 def get_text_next_to_keyword(page, keyword, shift_right=500):
-    """Tìm từ khóa và dịch phải tự động (Chống phân biệt hoa thường)"""
     rects = page.search_for(keyword, flags=1)
     if not rects:
         return ""
@@ -33,14 +54,10 @@ def get_text_next_to_keyword(page, keyword, shift_right=500):
     return page.get_text("text", clip=search_area).strip()
 
 def get_text_by_absolute_coordinates(page, x0, y0, y1):
-    """Quét theo tọa độ cứng"""
     search_area = fitz.Rect(x0, y0, 600, y1)
     return page.get_text("text", clip=search_area).strip()
 
 def detect_language_structure(page_text):
-    """
-    Tự động nhận diện cấu trúc form dựa vào các từ khóa đặc trưng
-    """
     page_text_clean = re.sub(r'\s+', ' ', page_text)
     if "CALIBRATION CERTIFICATE" in page_text_clean:
         return "TRUNG_ANH"
@@ -49,152 +66,130 @@ def detect_language_structure(page_text):
     return "TRUNG_VIET"
 
 def extract_info_smart(page, naming_type):
-    """
-    Bộ não trung tâm: Tự động phân tích ngôn ngữ và bóc tách sạch sẽ dữ liệu theo tọa độ cứng hoặc mềm
-    """
     full_text = page.get_text("text")
     lang_type = detect_language_structure(full_text)
-    
-    print(f"\n[LOG WEB] --- TỰ ĐỘNG NHẬN DIỆN FORM: '{lang_type}' | CHẾ ĐỘ: '{naming_type}' ---")
 
-    # ==========================================================================
-    # PHÂN NHÁNH A: XỬ LÝ FORM TRUNG - ANH MỚI CẬP NHẬT (Áp dụng tọa độ cứng chuẩn)
-    # ==========================================================================
+    # 1. TRUNG - ANH
     if lang_type == "TRUNG_ANH":
         if naming_type == "so_gcn":
             c = CONFIG_TRUNG_ANH["so_gcn"]
             raw = get_text_by_absolute_coordinates(page, c[0], c[1], c[2])
-            # Làm sạch chuỗi, nhặt cụm mã GCN như C202605-L0437
             match = re.search(r'([A-Z0-9]+-[A-Z0-9]+)', raw, re.IGNORECASE)
-            return match.group(1).strip().upper() if match else None
+            if match: return match.group(1).strip().upper()
                 
         elif naming_type == "ma_ql":
             c = CONFIG_TRUNG_ANH["ma_ql"]
             raw = get_text_by_absolute_coordinates(page, c[0], c[1], c[2])
             clean_raw = raw.replace("Management No.", "").replace("\n", " ").replace(":", "").strip()
-            # Áp dụng chung cho cả mục ma_ql của TRUNG_ANH và TRUNG_VIET
-            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)  # Co khoảng trắng quanh dấu trừ
-            clean_raw = re.sub(r'\s+', '-', clean_raw)      # Đổi khoảng trắng đơn lẻ thành dấu trừ
-            clean_raw = re.sub(r'-+', '-', clean_raw)       # Triệt tiêu dấu trừ kép (--) thành (-)
-            return None if clean_raw in ["/", "", "nan"] else re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
+            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)
+            clean_raw = re.sub(r'\s+', '-', clean_raw)
+            clean_raw = re.sub(r'-+', '-', clean_raw)
+            if clean_raw not in ["/", "", "nan"]:
+                return re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
                 
         elif naming_type == "ten_tb":
             c_ten = CONFIG_TRUNG_ANH["ten_tb"]
             c_kieu = CONFIG_TRUNG_ANH["kieu_may"]
             raw_ten = get_text_by_absolute_coordinates(page, c_ten[0], c_ten[1], c_ten[2])
             raw_kieu = get_text_by_absolute_coordinates(page, c_kieu[0], c_kieu[1], c_kieu[2])
-            
-            # Gọt tên thiết bị: Chỉ giữ lại phần Tiếng Việt trước dấu mở ngoặc Trung/Anh
             ten_tb = raw_ten.split("(")[0].strip() if "(" in raw_ten else raw_ten.strip()
-            # Gọt kiểu máy: Bỏ chữ "技术特征" rác nếu bị dính vào
             kieu_may = raw_kieu.replace("技术特征", "").replace(":", "").strip()
-            
             ten_tb = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', ten_tb.replace("\n", " ")).strip()
             kieu_may = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', kieu_may.replace("\n", " ")).strip()
-            return f"{ten_tb}_{kieu_may}" if ten_tb and kieu_may else ten_tb
+            if ten_tb or kieu_may:
+                return f"{ten_tb}_{kieu_may}" if ten_tb and kieu_may else ten_tb
 
-    # ==========================================================================
-    # PHÂN NHÁNH 1: XỬ LÝ FORM TRUNG - VIỆT (Giống như cũ)
-    # ==========================================================================
+    # 2. TRUNG - VIỆT
     elif lang_type == "TRUNG_VIET":
         if naming_type == "so_gcn":
             c = CONFIG_TRUNG_VIET["so_gcn"]
             raw = get_text_by_absolute_coordinates(page, c[0], c[1], c[2])
             match = re.search(r'([A-Z0-9]+-[A-Z0-9]+)', raw, re.IGNORECASE)
-            return match.group(1).strip() if match else None
+            if match: return match.group(1).strip()
                 
         elif naming_type == "ma_ql":
             c = CONFIG_TRUNG_VIET["ma_ql"]
             raw = get_text_by_absolute_coordinates(page, c[0], c[1], c[2])
             clean_raw = raw.replace("\n", " ").replace(":", "").strip()
-            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)  # Co khoảng trắng quanh dấu trừ
-            clean_raw = re.sub(r'\s+', '-', clean_raw)      # Đổi khoảng trắng đơn lẻ thành dấu trừ
-            clean_raw = re.sub(r'-+', '-', clean_raw)       # Triệt tiêu dấu trừ kép (--) thành (-)
-            return None if clean_raw in ["/", "", "号"] else re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
+            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)
+            clean_raw = re.sub(r'\s+', '-', clean_raw)
+            clean_raw = re.sub(r'-+', '-', clean_raw)
+            if clean_raw not in ["/", "", "号"]:
+                return re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
                 
         elif naming_type == "ten_tb":
             c_ten = CONFIG_TRUNG_VIET["ten_tb"]
             c_kieu = CONFIG_TRUNG_VIET["kieu_may"]
             raw_ten = get_text_by_absolute_coordinates(page, c_ten[0], c_ten[1], c_ten[2])
             raw_kieu = get_text_by_absolute_coordinates(page, c_kieu[0], c_kieu[1], c_kieu[2])
-            
             ten_tb = raw_ten.split("/")[-1].strip() if "/" in raw_ten else raw_ten.strip()
             kieu_may = raw_kieu.strip()
             for kw in ["Đặc trưng", "Đặc Trưng", "技术", "见結果页"]:
                 if kw in kieu_may: kieu_may = kieu_may.split(kw)[0].strip()
-            
             ten_tb = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', ten_tb.replace("\n", " ")).strip()
             kieu_may = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', kieu_may.replace("\n", " ")).strip()
-            return f"{ten_tb}_{kieu_may}" if ten_tb and kieu_may else ten_tb
+            if ten_tb or kieu_may:
+                return f"{ten_tb}_{kieu_may}" if ten_tb and kieu_may else ten_tb
 
-    # ==========================================================================
-    # PHÂN NHÁNH 2: XỬ LÝ FORM VIỆT - ANH (Sử dụng thuật toán gọt Regex)
-    # ==========================================================================
-    else:
-        if naming_type == "so_gcn":
-            raw = get_text_next_to_keyword(page, "Mã số GCN")
-            match = re.search(r'([A-Z0-9]+-[A-Z0-9]+)$', raw.strip(), re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-            match_any = re.search(r'([A-Z0-9]+-[A-Z0-9]+)', raw, re.IGNORECASE)
-            return match_any.group(1).strip() if match_any else None
-                
-        elif naming_type == "ma_ql":
-            raw = get_text_next_to_keyword(page, "Mã quản lý")
+    # 3. VIỆT - ANH HOẶC FORM KHÁC (GIẤY THỬ NGHIỆM)
+    if naming_type == "so_gcn":
+        for kw in ["Mã số GCN", "Số GCN", "Số/No", "No."]:
+            raw = get_text_next_to_keyword(page, kw)
+            match = re.search(r'([A-Z0-9]+-[A-Z0-9]+)', raw, re.IGNORECASE)
+            if match: return match.group(1).strip()
+            
+    elif naming_type == "ma_ql":
+        for kw in ["Mã quản lý", "Mã QL", "Management No"]:
+            raw = get_text_next_to_keyword(page, kw)
             clean_raw = raw.replace("\n", " ").replace(":", "").replace("/", "").strip()
-            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)  # Co khoảng trắng quanh dấu trừ
-            clean_raw = re.sub(r'\s+', '-', clean_raw)      # Đổi khoảng trắng đơn lẻ thành dấu trừ
-            clean_raw = re.sub(r'-+', '-', clean_raw)       # Triệt tiêu dấu trừ kép (--) thành (-)
-            return None if clean_raw == "" else re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
-                
-        elif naming_type == "ten_tb":
-            raw_ten = get_text_next_to_keyword(page, "Tên thiết bị")
-            if not raw_ten: raw_ten = get_text_next_to_keyword(page, "Thiết bị")
-            
-            raw_kieu = get_text_next_to_keyword(page, "Model")
-            if not raw_kieu: raw_kieu = get_text_next_to_keyword(page, "Kiểu máy")
-            
-            ten_tb = raw_ten.replace(":", "").strip()
-            if "/" in ten_tb:
-                ten_tb = ten_tb.split("/")[0].strip()
-                
-            kieu_may = raw_kieu.replace(":", "").strip()
-            for kw in ["Technical", "Technical specifications", "Đặc trưng", "/"]:
-                if kw in kieu_may:
-                    kieu_may = kieu_may.split(kw)[0].strip()
-                    
-            ten_tb = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', ten_tb.replace("\n", " ")).strip()
-            kieu_may = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', kieu_may.replace("\n", " ")).strip()
-            
-            if ten_tb and kieu_may:
-                return f"{ten_tb}_{kieu_may}"
-            return ten_tb if ten_tb else "ThietBi"
+            clean_raw = re.sub(r'\s*-\s*', '-', clean_raw)
+            clean_raw = re.sub(r'\s+', '-', clean_raw)
+            clean_raw = re.sub(r'-+', '-', clean_raw)
+            if clean_raw: return re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', clean_raw)
+
+    elif naming_type == "ten_tb":
+        raw_ten = get_text_next_to_keyword(page, "Tên thiết bị") or get_text_next_to_keyword(page, "Thiết bị") or get_text_next_to_keyword(page, "Tên mẫu")
+        raw_kieu = get_text_next_to_keyword(page, "Model") or get_text_next_to_keyword(page, "Kiểu máy")
+        
+        ten_tb = raw_ten.replace(":", "").strip()
+        if "/" in ten_tb: ten_tb = ten_tb.split("/")[0].strip()
+        kieu_may = raw_kieu.replace(":", "").strip()
+        
+        ten_tb = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', ten_tb.replace("\n", " ")).strip()
+        kieu_may = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', kieu_may.replace("\n", " ")).strip()
+        
+        if ten_tb or kieu_may:
+            return f"{ten_tb}_{kieu_may}" if (ten_tb and kieu_may) else (ten_tb if ten_tb else kieu_may)
+
+    # Fallback Regex nếu không đo được bằng tọa độ
+    all_gcn = re.findall(r'([A-Z0-9]{2,}-[A-Z0-9]{2,})', full_text)
+    if all_gcn:
+        valid = [g for g in all_gcn if not any(k in g.upper() for k in ["ISO", "TCVN", "ASTM", "JIS", "IEC"])]
+        if valid:
+            return f"GCN_{valid[0]}"
 
     return None
 
+# ==============================================================================
+# HÀM TÁCH PDF SMART - BẢO TOÀN LOGIC CŨ 100%
+# ==============================================================================
 def smart_split_pdf(pdf_path, keyword="Giấy chứng nhận", naming_type="ma_ql"):
-    """
-    HÀM CŨ NÂNG CẤP: Khớp CHÍNH XÁC hoa thường từ TextBox và kiểm tra từ khóa ngay từ đầu.
-    """
     doc = fitz.open(pdf_path)
     
-    keyword_clean = keyword.strip()
-    has_keyword = False
-    for page in doc:
-        page_text_clean = re.sub(r'\s+', ' ', page.get_text("text"))
-        if keyword_clean in page_text_clean:
-            has_keyword = True
-            break
-            
-    if not has_keyword:
+    keyword_list = parse_keywords(keyword)
+    if not keyword_list:
         doc.close()
-        return None, f"❌ HỦY BỎ TÁCH FILE: Không tìm thấy từ khóa '{keyword}' (khớp chính xác hoa thường) trong bất kỳ trang nào của file PDF!"
+        return None, "❌ HỦY BỎ TÁCH FILE: Từ khóa nhập vào bị trống!"
 
+    # 🌟 Tìm điểm cắt đúng theo logic search_for chuẩn gốc của PyMuPDF
     cut_points = []
     for i in range(len(doc)):
-        page_text_clean = re.sub(r'\s+', ' ', doc[i].get_text("text"))
-        if keyword_clean in page_text_clean:
+        if search_any_keyword_in_page(doc[i], keyword_list):
             cut_points.append(i)
+
+    if not cut_points:
+        doc.close()
+        return None, f"❌ HỦY BỎ TÁCH FILE: Không tìm thấy từ khóa nào trong danh sách!"
 
     base_dir = os.path.dirname(pdf_path)
     zip_name = f"Ket_Qua_Tach_Theo_{naming_type}.zip"
@@ -235,27 +230,35 @@ def smart_split_pdf(pdf_path, keyword="Giấy chứng nhận", naming_type="ma_q
             new_doc.close()
             
     doc.close()
-    return zip_path, f"🎉 Đã cắt thành công theo từ khóa '{keyword}'!"
+    return zip_path, f"🎉 Đã cắt thành công!"
 
 
-def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nhận", naming_type="ten_tb"):
+def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nhận, Certificate, Certificate of Calibration", naming_type="ten_tb"):
     """
-    HÀM EXCEL NÂNG CẤP: Khớp CHÍNH XÁC hoa thường từ TextBox và chặn hủy bỏ quy trình ngay lập tức nếu sai từ khóa.
+    HÀM EXCEL NÂNG CẤP ĐỒNG BỘ:
+    1. Hỗ trợ ĐA TỪ KHÓA (nhập phân cách bằng dấu phẩy, ví dụ: 'Giấy chứng nhận, Certificate').
+    2. Tìm kiếm theo vị trí chữ nguyên bản PyMuPDF (không phân biệt hoa/thường, không sợ ngắt dòng).
+    3. Tra cứu file Excel theo Số GCN bóc tách từ trang đầu.
     """
     doc = fitz.open(pdf_path)
+    keywords = parse_keywords(keyword)
     
-    keyword_clean = keyword.strip()
+    if not keywords:
+        doc.close()
+        return None, "❌ Vui lòng nhập ít nhất một từ khóa để tìm kiếm!"
+
+    # 1. Kiểm tra sự tồn tại của BẤT KỲ từ khóa nào trong file PDF
     has_keyword = False
     for page in doc:
-        page_text_clean = re.sub(r'\s+', ' ', page.get_text("text"))
-        if keyword_clean in page_text_clean:
+        if search_any_keyword_in_page(page, keywords):
             has_keyword = True
             break
             
     if not has_keyword:
         doc.close()
-        return None, f"❌ HỦY BỎ TÁCH FILE: Từ khóa '{keyword}' (chính xác hoa thường) không tồn tại trên file PDF. Vui lòng kiểm tra lại!"
+        return None, f"❌ HỦY BỎ TÁCH FILE: Không tìm thấy bất kỳ từ khóa nào trong danh sách '{keyword}' trên file PDF. Vui lòng kiểm tra lại!"
 
+    # 2. Đọc file Excel
     try:
         df = pd.read_excel(excel_path, header=None, dtype=str)
         df[25] = df[25].fillna("").str.strip().str.upper()
@@ -263,10 +266,10 @@ def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nh�
         doc.close()
         return None, f"❌ Lỗi khi đọc file Excel: {str(e)}"
 
+    # 3. Tìm các điểm cắt (Cut Points) dựa trên danh sách đa từ khóa
     cut_points = []
-    for i in range(len(doc)):
-        page_text_clean = re.sub(r'\s+', ' ', doc[i].get_text("text"))
-        if keyword_clean in page_text_clean:
+    for i, page in enumerate(doc):
+        if search_any_keyword_in_page(page, keywords):
             cut_points.append(i)
 
     base_dir = os.path.dirname(pdf_path)
@@ -275,12 +278,17 @@ def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nh�
 
     output_folder = os.path.join(base_dir, "temp_split_excel")
     if os.path.exists(output_folder):
-        for f in os.listdir(output_folder): os.remove(os.path.join(output_folder, f))
+        for f in os.listdir(output_folder): 
+            try:
+                os.remove(os.path.join(output_folder, f))
+            except:
+                pass
     else:
         os.makedirs(output_folder, exist_ok=True)
         
     used_names = {}
     
+    # 4. Tiến hành cắt và tra cứu Excel
     with zipfile.ZipFile(zip_path, 'w') as zipf:
         for i in range(len(cut_points)):
             start = cut_points[i]
@@ -292,6 +300,7 @@ def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nh�
             first_page_text = new_doc[0].get_text("text")
             gcn_key = None
             
+            # Quét Regex lấy Số GCN
             all_matches = re.findall(r'([A-Z0-9]*[0-9][A-Z0-9]*-[A-Z0-9]*[0-9][A-Z0-9]*)', first_page_text, re.IGNORECASE)
             if all_matches:
                 valid_matches = [m for m in all_matches if not any(kw in m.upper() for kw in ["ISO", "TCVN", "ASTM", "JIS", "IEC"])]
@@ -302,6 +311,7 @@ def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nh�
             else:
                 final_filename = f"Khong_Do_Duoc_GCN_{i+1}"
             
+            # Khớp thông tin từ Excel
             if gcn_key:
                 excel_column_clean = df[25].astype(str).str.strip().str.upper()
                 matched_rows = df[excel_column_clean == gcn_key]
@@ -331,6 +341,7 @@ def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nh�
                         else:
                             final_filename = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', excel_ma_ql)
 
+            # Xử lý trùng tên file
             final_filename = re.sub(r'\s+', ' ', final_filename).strip()
             if final_filename in used_names:
                 used_names[final_filename] += 1
@@ -345,4 +356,4 @@ def smart_split_pdf_with_excel(pdf_path, excel_path, keyword="Giấy chứng nh�
             new_doc.close()
             
     doc.close()
-    return zip_path, f"🎉 Đã cắt và đối chiếu Excel thành công dựa trên từ khóa '{keyword}'!"
+    return zip_path, f"🎉 Đã cắt và đối chiếu Excel thành công dựa trên từ khóa: '{keyword}'!"
