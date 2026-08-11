@@ -18,7 +18,7 @@ def extract_gcn_exact(text, excel_gcn_list):
     text = text.upper()
     # Regex mở rộng: bốc toàn bộ chuỗi có cấu trúc GCN, chấp nhận cả 0 lẫn O lộn xộn
     candidates = re.findall(
-        r'C\d{6}[- ]?[A-Z0-9]{1,2}[- ]?[A-Z0-9]{4,6}',
+        r'[A-Z]\d{6}[- ]?[A-Z0-9]{1,2}[- ]?[A-Z0-9]{4,6}',
         text
     )
 

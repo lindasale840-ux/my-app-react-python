@@ -96,33 +96,64 @@ def preprocess_image_for_ocr(page, dpi=300, top_percent=0.6):
 # ============================================================
 # HÀM BỔ TRỢ 3: LOGIC VÉT CẠN BIẾN THỂ THEO Ý KIẾN CỦA BẠN
 # ============================================================
+import re
+
 def extract_gcn_intelligent(text, excel_gcn_list):
     """
     Tạo ra tất cả các bản sao (biến thể) có khả năng xảy ra của mã GCN,
     sau đó đối chiếu lần lượt với Excel để tìm ra kết quả đúng nhất.
+    Tự động mở rộng cho TẤT CẢ các chữ cái đầu có trong file Excel.
     """
-    if not text:
+    if not text or not excel_gcn_list:
         return None
 
     text = text.upper()
-    
-    # 1. Regex quét rộng: Chấp nhận cả việc đoạn đầu bị dính chữ O hoặc số 0 lộn xộn
-    # (Ví dụ: bốc được cả C2O26O5, C202605, O202605...)
-    candidates = re.findall(
-        r'[C0O][A-Z0-9]{6}[- ]?[A-Z0-9]{1,2}[- ]?[A-Z0-9]{4,6}',
-        text
-    )
 
-    if not candidates:
-        return None
-
-    # Chuẩn hóa danh sách Excel làm nền đối chiếu chuẩn
+    # =========================================================
+    # 0. CHUẨN HÓA DẠNG EXCEL & TỰ ĐỘNG LẤY TẤT CẢ CHỮ CÁI ĐẦU HỢP LỆ
+    # =========================================================
     excel_map = {}
+    valid_prefix_letters = set()  # Tập hợp chứa các chữ cái đầu (VD: {'C', 'T', 'A', 'K'...})
+
     for gcn in excel_gcn_list:
         if not gcn:
             continue
         norm = re.sub(r'[-\s\.]', '', str(gcn).upper())
         excel_map[norm] = str(gcn).upper()
+        
+        # Nếu ký tự đầu là chữ cái (A-Z), lưu vào danh sách prefix hợp lệ
+        if norm and norm[0].isalpha():
+            valid_prefix_letters.add(norm[0])
+
+    # Nếu Excel rỗng hoặc không có mã hợp lệ
+    if not valid_prefix_letters:
+        valid_prefix_letters = {'C', 'T'} # Backup mặc định nếu file excel lỗi
+
+    # Bảng ánh xạ lỗi OCR phổ biến của các chữ cái đầu khi bị quét nhầm thành Số/Ký tự
+    # (Có thể bổ sung thêm nếu sau này OCR hay đọc nhầm ký tự nào đó)
+    ocr_error_map = {
+        '0': ['C', 'O', 'Q', 'D'],
+        'O': ['C', '0', 'Q', 'D'],
+        '7': ['T', '1', 'I'],
+        '1': ['T', 'I', '7', 'L'],
+        'I': ['T', '1', '7', 'L'],
+        '+': ['T'],
+        '|': ['T', 'I', '1']
+    }
+
+    # =========================================================
+    # 1. REGEX QUÉT RỘNG TỰ ĐỘNG
+    # Chấp nhận ký tự đầu là tất cả các chữ cái có trong Excel + các lỗi OCR phổ biến
+    # =========================================================
+    prefix_pattern = "".join(valid_prefix_letters.union(set(ocr_error_map.keys())))
+    
+    candidates = re.findall(
+        rf'[{prefix_pattern}][A-Z0-9]{{6}}[- ]?[A-Z0-9]{{1,2}}[- ]?[A-Z0-9]{{4,6}}',
+        text
+    )
+
+    if not candidates:
+        return None
 
     for candidate in candidates:
         # Xóa ký tự phân cách của ứng viên gốc
@@ -132,19 +163,33 @@ def extract_gcn_intelligent(text, excel_gcn_list):
             continue
 
         # Tách cấu trúc logic của chuỗi ứng viên
-        ky_tu_dau = norm_candidate[0]     # Thường là C, nhưng OCR có thể đọc ra 0 hoặc O
+        ky_tu_dau = norm_candidate[0]     # Ký tự đầu
         sau_so_dau = norm_candidate[1:7]   # Phân đoạn Năm/Tháng (Ví dụ: 202605)
         phan_he = norm_candidate[7]       # Phân hệ (Có thể là chữ O hoặc số 0)
         so_seri = norm_candidate[8:]       # Số sê-ri phía sau
 
         # =========================================================
-        # TẠO TẬP HỢP TẤT CẢ CÁC BẢN SAO CÓ KHẢ NĂNG (TỐI ĐA 8 BẢN SAO)
+        # TẠO TẬP HỢP TẤT CẢ CÁC BẢN SAO CÓ KHẢ NĂNG (GIỮ NGUYÊN LOGIC GỐC)
         # =========================================================
         possible_variants = []
 
-        # Tạo danh sách khả năng cho từng phân đoạn dựa trên lỗi OCR phổ biến
-        dau_opts = ['C'] if ky_tu_dau in ['C', '0', 'O'] else [ky_tu_dau]
+        # TỰ ĐỘNG LỌC VÀ NẮN KÝ TỰ ĐẦU DỰA TRÊN DẠNG EXCEL
+        dau_opts = []
         
+        # Nếu ký tự quét được đã nằm trong danh sách chữ cái Excel -> Giữ nguyên
+        if ky_tu_dau in valid_prefix_letters:
+            dau_opts.append(ky_tu_dau)
+
+        # Nếu ký tự quét được bị nghi ngờ là lỗi OCR (ví dụ 0, O, 7, 1, I...)
+        if ky_tu_dau in ocr_error_map:
+            for possible_char in ocr_error_map[ky_tu_dau]:
+                if possible_char in valid_prefix_letters:
+                    dau_opts.append(possible_char)
+
+        # Trường hợp dự phòng nếu không tìm thấy gợi ý nào phù hợp
+        if not dau_opts:
+            dau_opts = [ky_tu_dau]
+
         # Phân đoạn năm/tháng: Thử cả bản gốc và bản nắn chữ O thành số 0
         sau_so_opts = [sau_so_dau, sau_so_dau.replace('O', '0')]
         
