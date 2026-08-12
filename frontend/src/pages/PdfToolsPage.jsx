@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import TabMergePdf from '../features/pdf/TabMergePdf';
 import PdfSplitByCutNodes from '../features/pdf/PdfSplitByCutNodes';
+import TabCompressPdf from '../features/pdf/TabCompressPdf';
 export default function PdfToolsPage() {
   // Quản lý Tab đang chọn (Mặc định là Tab 1)
   const [activeTab, setActiveTab] = useState('merge');
@@ -46,6 +47,23 @@ export default function PdfToolsPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab('compress')}
+          style={{
+            padding: '10px 20px',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontSize: '15px',
+            fontWeight: 'bold',
+            color: activeTab === 'compress' ? '#0284c7' : '#64748b',
+            borderBottom: activeTab === 'compress' ? '3px solid #0284c7' : '3px solid transparent',
+            marginBottom: '-2px',
+          }}
+        >
+          Nén PDF
+        </button>
+
+        <button
           onClick={() => setActiveTab('scan')}
           style={{
             padding: '10px 20px',
@@ -67,6 +85,7 @@ export default function PdfToolsPage() {
       <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
         {activeTab === 'merge' && <TabMergePdf />}
         {activeTab === 'split' && <PdfSplitByCutNodes />}
+        {activeTab === 'compress' && <TabCompressPdf />}
         {activeTab === 'scan' && <div>Nội dung Tab PDF Scan sẽ để ở đây...</div>}
       </div>
     </div>

@@ -6,6 +6,7 @@ import os
 # Import các logic xử lý từ thư mục services
 from services.pdf_merge_service_react import merge_pdfs_logic
 from services.pdf_split_service_react import get_pdf_thumbnails_logic, split_pdf_by_ranges_logic
+from services.pdf_compress_service_react import compress_pdf_logic
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Operations"])
 
@@ -52,3 +53,25 @@ async def api_split_pdf_ranges(
         filename="Split_Results.zip",
         media_type="application/zip"
     )
+    
+@router.post("/compress")
+async def api_compress_pdf(
+    file: Annotated[UploadFile, File(...)],
+    mode: Annotated[str, Form(...)] = "normal"
+):
+    file_bytes = await file.read()
+    output_path, message, old_size, new_size = compress_pdf_logic(file_bytes, mode)
+
+    if not output_path or not os.path.exists(output_path):
+        raise HTTPException(status_code=500, detail=f"Lỗi khi nén file: {message}")
+
+    return FileResponse(
+        path=output_path,
+        filename=f"compressed_{file.filename}",
+        media_type="application/pdf",
+        headers={
+            "X-Old-Size": str(old_size),
+            "X-New-Size": str(new_size),
+            "Access-Control-Expose-Headers": "X-Old-Size, X-New-Size"
+        }
+    )    
