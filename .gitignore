@@ -37,3 +37,34 @@ PDF_Smart_Setup.exe
 
 # Không đưa file bản quyền cục bộ lên Git
 license.json
+
+# ==========================================
+# Frontend (React + Vite)
+# ==========================================
+# Bỏ qua thư viện JavaScript (RẤT QUAN TRỌNG - cực kỳ nặng)
+frontend/node_modules/
+
+# Bỏ qua thư mục build sản phẩm
+frontend/dist/
+frontend/dist-isolation/
+
+# Bỏ qua log lỗi của npm/yarn/pnpm
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# Bỏ qua biến môi trường local của Frontend (chứa API key, secret nếu có)
+frontend/.env.local
+frontend/.env.*.local
+
+# Bỏ qua thư mục cache của Vite
+frontend/.vite/
+
+*.py[cod]
+*$py.class
+
+# Thư mục tạm khi xử lý file PDF/Excel (nếu app bạn tạo ra file tạm)
+temp/
+exports/
+*.tmp
