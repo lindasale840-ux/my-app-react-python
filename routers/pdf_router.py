@@ -8,6 +8,7 @@ from services.pdf_merge_service_react import merge_pdfs_logic
 from services.pdf_split_service_react import get_pdf_thumbnails_logic, split_pdf_by_ranges_logic
 from services.pdf_compress_service_react import compress_pdf_logic
 from services.pdf_reduce_service_react import reduce_pdf_logic
+from services.pdf_version_service_react import run_pdf_version_downgrade
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Operations"])
 
@@ -99,4 +100,25 @@ async def api_reduce_pdf(
             "X-New-Size": str(new_size),
             "Access-Control-Expose-Headers": "X-Old-Size, X-New-Size"
         }
+    )
+    
+@router.post("/downgrade-version")
+async def api_downgrade_pdf_version(
+    file: Annotated[UploadFile, File(...)],
+    compatibility: Annotated[str, Form(...)] = "1.4"
+):
+    file_bytes = await file.read()
+    output_path, error_msg = run_pdf_version_downgrade(file_bytes, compatibility)
+
+    if error_msg or not output_path or not os.path.exists(output_path):
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi hạ phiên bản PDF: {error_msg or 'Không tạo được file'}"
+        )
+
+    return FileResponse(
+        path=output_path,
+        filename=f"v{compatibility}_{file.filename}",
+        media_type="application/pdf"
     )    
+        

@@ -1,9 +1,17 @@
 FORM MẪU YÊU CẦU CHỨC NĂNG MỚI
 
-Tên chức năng: (Ví dụ: PDF Scan, Nén File PDF, Chuyển PDF sang Excel...)
+1. Tên chức năng: [Tên chức năng]
+2. Vị trí hiển thị: [Ví dụ: Page 1, Tab 5 - Tên Tab]
 
-Tên Tab hiển thị ở Frontend: (Ví dụ: Tab 3 - PDF Scan)
+3. QUY CHUẨN KĨ THUẬT DỰ ÁN (BẮT BUỘC TUÂN THỦ):
+   - Thư mục chứa service Frontend: src/services/[tenFunction]Service.js (KHÔNG dùng thư mục api)
+   - Thư mục chứa component Frontend: src/features/[feature]/[TabComponent].jsx
+   - Cấu trúc gọi Axios Frontend: 
+       import axios from 'axios';
+       const API_BASE_URL = 'http://localhost:8000';
+       axios.post(`${API_BASE_URL}/api/...`)
+   - Style giao diện: Sử dụng Inline Style đồng bộ với `getTabStyle()` hiện tại.
 
-Đoạn code Python Streamlit hiện tại: (Paste toàn bộ đoạn code Python đang chạy bên Streamlit của chức năng đó vào đây)
-
-Mô tả luồng hoạt động hoặc mong muốn đặc biệt (nếu có): (Ví dụ: Người dùng upload file -> Chọn thông số A, B -> Bấm thực hiện -> Tải về file kết quả)
+4. Đoạn code Python Streamlit hiện tại:
+```python
+[Paste code Streamlit vào đây]

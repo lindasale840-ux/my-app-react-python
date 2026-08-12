@@ -3,6 +3,7 @@ import TabMergePdf from '../features/pdf/TabMergePdf';
 import PdfSplitByCutNodes from '../features/pdf/PdfSplitByCutNodes';
 import TabCompressPdf from '../features/pdf/TabCompressPdf';
 import TabReducePdf from "../features/pdf/TabReducePdf";
+import TabVersionPdf from "../features/pdf/TabVersionPdf"; // Thêm Tab 5
 
 export default function PdfToolsPage() {
   // Quản lý Tab đang chọn (Mặc định là 'merge')
@@ -55,6 +56,9 @@ export default function PdfToolsPage() {
         >
           Giảm dung lượng PDF
         </button>
+        <button onClick={() => setActiveTab('version')} style={getTabStyle('version')}>
+          Hạ Phiên Bản PDF
+        </button>
 
         <button
           onClick={() => setActiveTab('scan')}
@@ -70,6 +74,7 @@ export default function PdfToolsPage() {
         {activeTab === 'split' && <PdfSplitByCutNodes />}
         {activeTab === 'compress' && <TabCompressPdf />}
         {activeTab === 'reduce' && <TabReducePdf />}
+        {activeTab === 'version' && <TabVersionPdf />}
         {activeTab === 'scan' && <div>Nội dung Tab PDF Scan sẽ để ở đây...</div>}
       </div>
     </div>
