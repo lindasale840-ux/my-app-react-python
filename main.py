@@ -1,16 +1,18 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Annotated
-import os
-
-from services.pdf_merge_service_react import merge_pdfs_logic
+from routers.pdf_router import router as pdf_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
+# CẤU HÌNH CORS CHUẨN DÀNH CHO CẢ PORT 5173 VÀ 5174
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -20,25 +22,4 @@ app.add_middleware(
 def home():
     return {"message": "API Backend Python đang chạy rất tốt!"}
 
-
-# SỬA DÙNG ANNOTATED Ở ĐÂY
-@app.post("/api/pdf/merge")
-async def api_merge_pdfs(
-    files: Annotated[List[UploadFile], File(description="Chọn các file PDF cần ghép")]
-):
-    """
-    API nhận vào danh sách nhiều file PDF, ghép lại và trả về 1 file PDF hoàn chỉnh.
-    """
-    if not files:
-        raise HTTPException(status_code=400, detail="Vui lòng gửi ít nhất 1 file PDF.")
-
-    output_path, message = merge_pdfs_logic(files)
-
-    if not output_path:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi ghép file: {message}")
-
-    return FileResponse(
-        path=output_path,
-        filename=os.path.basename(output_path),
-        media_type="application/pdf"
-    )
+app.include_router(pdf_router)

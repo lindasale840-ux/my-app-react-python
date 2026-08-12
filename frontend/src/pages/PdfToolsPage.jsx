@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import TabMergePdf from '../features/pdf/TabMergePdf';
-
+import PdfSplitByCutNodes from '../features/pdf/PdfSplitByCutNodes';
 export default function PdfToolsPage() {
   // Quản lý Tab đang chọn (Mặc định là Tab 1)
   const [activeTab, setActiveTab] = useState('merge');
@@ -42,7 +42,7 @@ export default function PdfToolsPage() {
             marginBottom: '-2px',
           }}
         >
-          Tách File PDF (Sắp làm)
+          Tách File PDF
         </button>
 
         <button
@@ -66,7 +66,7 @@ export default function PdfToolsPage() {
       {/* HIỂN THỊ NỘI DUNG THEO TAB ĐƯỢC CHỌN */}
       <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
         {activeTab === 'merge' && <TabMergePdf />}
-        {activeTab === 'split' && <div>Nội dung Tab Tách PDF sẽ để ở đây...</div>}
+        {activeTab === 'split' && <PdfSplitByCutNodes />}
         {activeTab === 'scan' && <div>Nội dung Tab PDF Scan sẽ để ở đây...</div>}
       </div>
     </div>
