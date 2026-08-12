@@ -5,6 +5,7 @@ import TabCompressPdf from '../features/pdf/TabCompressPdf';
 import TabReducePdf from "../features/pdf/TabReducePdf";
 import TabVersionPdf from "../features/pdf/TabVersionPdf"; // Thêm Tab 5
 import TabRemoveBlankPdf from "../features/pdf/TabRemoveBlankPdf"; // Thêm Tab 6
+import TabGroupPdfByExcel from "../features/pdf/TabGroupPdfByExcel"; // Thêm Tab Gom Nhóm
 
 export default function PdfToolsPage() {
   // Quản lý Tab đang chọn (Mặc định là 'merge')
@@ -65,6 +66,10 @@ export default function PdfToolsPage() {
           🧹 Xóa trang trắng
         </button>
 
+        <button onClick={() => setActiveTab('group-excel')} style={getTabStyle('group-excel')}>
+          📂 Phân Loại Theo Excel
+        </button>
+
         <button
           onClick={() => setActiveTab('scan')}
           style={getTabStyle('scan')}
@@ -81,6 +86,7 @@ export default function PdfToolsPage() {
         {activeTab === 'reduce' && <TabReducePdf />}
         {activeTab === 'version' && <TabVersionPdf />}
         {activeTab === 'remove-blank' && <TabRemoveBlankPdf />}
+        {activeTab === 'group-excel' && <TabGroupPdfByExcel />}
         {activeTab === 'scan' && <div>Nội dung Tab PDF Scan sẽ để ở đây...</div>}
       </div>
     </div>

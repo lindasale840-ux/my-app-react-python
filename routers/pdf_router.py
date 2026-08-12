@@ -12,6 +12,7 @@ from services.pdf_compress_service_react import compress_pdf_logic
 from services.pdf_reduce_service_react import reduce_pdf_logic
 from services.pdf_version_service_react import run_pdf_version_downgrade
 from services.pdf_remove_blank_service_react import run_remove_blank_pages_batch
+from services.pdf_group_service_react import parse_excel_columns, process_group_pdfs
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Operations"])
 
@@ -152,4 +153,54 @@ async def api_remove_blank_pages(
             "X-Remove-Summary": encoded_summary,
             "Access-Control-Expose-Headers": "X-Remove-Summary, Content-Disposition"
         }
-    )        
+    ) 
+    
+@router.post("/parse-excel-cols")
+async def api_parse_excel_cols(excel_file: UploadFile = File(...)):
+    """Đọc xem file Excel có bao nhiêu cột để Frontend tạo Dropdown lựa chọn"""
+    try:
+        content = await excel_file.read()
+        columns = parse_excel_columns(content)
+        return {"columns": columns}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Lỗi khi đọc file Excel: {str(e)}")
+
+
+@router.post("/group-by-excel")
+async def api_group_pdf_by_excel(
+    excel_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(...),
+    match_col_idx: Annotated[int, Form(...)] = 0,
+    target_col_idx: Annotated[int, Form(...)] = 1
+):
+    if not pdf_files:
+        raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất 1 file PDF")
+
+    excel_bytes = await excel_file.read()
+    
+    pdfs_data = []
+    for f in pdf_files:
+        c = await f.read()
+        pdfs_data.append((f.filename, c))
+
+    try:
+        zip_bytes, summary_msg = process_group_pdfs(
+            excel_bytes=excel_bytes,
+            pdfs_data=pdfs_data,
+            match_col_idx=match_col_idx,
+            target_col_idx=target_col_idx
+        )
+
+        encoded_summary = urllib.parse.quote(summary_msg)
+
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": 'attachment; filename="Ket_Qua_Gom_Nhom_PDF.zip"',
+                "X-Group-Summary": encoded_summary,
+                "Access-Control-Expose-Headers": "X-Group-Summary, Content-Disposition"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý phân loại: {str(e)}")           
