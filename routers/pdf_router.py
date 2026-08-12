@@ -7,6 +7,7 @@ import os
 from services.pdf_merge_service_react import merge_pdfs_logic
 from services.pdf_split_service_react import get_pdf_thumbnails_logic, split_pdf_by_ranges_logic
 from services.pdf_compress_service_react import compress_pdf_logic
+from services.pdf_reduce_service_react import reduce_pdf_logic
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Operations"])
 
@@ -68,6 +69,30 @@ async def api_compress_pdf(
     return FileResponse(
         path=output_path,
         filename=f"compressed_{file.filename}",
+        media_type="application/pdf",
+        headers={
+            "X-Old-Size": str(old_size),
+            "X-New-Size": str(new_size),
+            "Access-Control-Expose-Headers": "X-Old-Size, X-New-Size"
+        }
+    )    
+
+# THÊM ENDPOINT GIẢM DUNG LƯỢNG PDF
+@router.post("/reduce")
+async def api_reduce_pdf(
+    file: Annotated[UploadFile, File(...)],
+    dpi: Annotated[int, Form(...)] = 120,
+    quality: Annotated[int, Form(...)] = 70
+):
+    file_bytes = await file.read()
+    output_path, old_size, new_size = reduce_pdf_logic(file_bytes, dpi, quality)
+
+    if not output_path or not os.path.exists(output_path):
+        raise HTTPException(status_code=500, detail="Lỗi khi xử lý giảm dung lượng PDF")
+
+    return FileResponse(
+        path=output_path,
+        filename=f"reduced_{file.filename}",
         media_type="application/pdf",
         headers={
             "X-Old-Size": str(old_size),

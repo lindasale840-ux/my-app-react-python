@@ -1,0 +1,9 @@
+FORM MẪU YÊU CẦU CHỨC NĂNG MỚI
+
+Tên chức năng: (Ví dụ: PDF Scan, Nén File PDF, Chuyển PDF sang Excel...)
+
+Tên Tab hiển thị ở Frontend: (Ví dụ: Tab 3 - PDF Scan)
+
+Đoạn code Python Streamlit hiện tại: (Paste toàn bộ đoạn code Python đang chạy bên Streamlit của chức năng đó vào đây)
+
+Mô tả luồng hoạt động hoặc mong muốn đặc biệt (nếu có): (Ví dụ: Người dùng upload file -> Chọn thông số A, B -> Bấm thực hiện -> Tải về file kết quả)

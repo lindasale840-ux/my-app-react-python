@@ -2,9 +2,25 @@ import React, { useState } from 'react';
 import TabMergePdf from '../features/pdf/TabMergePdf';
 import PdfSplitByCutNodes from '../features/pdf/PdfSplitByCutNodes';
 import TabCompressPdf from '../features/pdf/TabCompressPdf';
+import TabReducePdf from "../features/pdf/TabReducePdf";
+
 export default function PdfToolsPage() {
-  // Quản lý Tab đang chọn (Mặc định là Tab 1)
+  // Quản lý Tab đang chọn (Mặc định là 'merge')
   const [activeTab, setActiveTab] = useState('merge');
+
+  // Helper hàm style đồng bộ Inline Style cho tất cả các nút
+  const getTabStyle = (tabKey) => ({
+    padding: '10px 20px',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '15px',
+    fontWeight: 'bold',
+    color: activeTab === tabKey ? '#0284c7' : '#64748b',
+    borderBottom: activeTab === tabKey ? '3px solid #0284c7' : '3px solid transparent',
+    marginBottom: '-2px',
+    transition: 'all 0.2s ease-in-out',
+  });
 
   return (
     <div>
@@ -14,68 +30,35 @@ export default function PdfToolsPage() {
       <div style={{ display: 'flex', borderBottom: '2px solid #e2e8f0', marginBottom: '20px' }}>
         <button
           onClick={() => setActiveTab('merge')}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: 'bold',
-            color: activeTab === 'merge' ? '#0284c7' : '#64748b',
-            borderBottom: activeTab === 'merge' ? '3px solid #0284c7' : '3px solid transparent',
-            marginBottom: '-2px',
-          }}
+          style={getTabStyle('merge')}
         >
           Ghép File PDF
         </button>
 
         <button
           onClick={() => setActiveTab('split')}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: 'bold',
-            color: activeTab === 'split' ? '#0284c7' : '#64748b',
-            borderBottom: activeTab === 'split' ? '3px solid #0284c7' : '3px solid transparent',
-            marginBottom: '-2px',
-          }}
+          style={getTabStyle('split')}
         >
           Tách File PDF
         </button>
 
         <button
           onClick={() => setActiveTab('compress')}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: 'bold',
-            color: activeTab === 'compress' ? '#0284c7' : '#64748b',
-            borderBottom: activeTab === 'compress' ? '3px solid #0284c7' : '3px solid transparent',
-            marginBottom: '-2px',
-          }}
+          style={getTabStyle('compress')}
         >
           Nén PDF
         </button>
 
         <button
+          onClick={() => setActiveTab('reduce')}
+          style={getTabStyle('reduce')}
+        >
+          Giảm dung lượng PDF
+        </button>
+
+        <button
           onClick={() => setActiveTab('scan')}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: 'bold',
-            color: activeTab === 'scan' ? '#0284c7' : '#64748b',
-            borderBottom: activeTab === 'scan' ? '3px solid #0284c7' : '3px solid transparent',
-            marginBottom: '-2px',
-          }}
+          style={getTabStyle('scan')}
         >
           PDF Scan (Sắp làm)
         </button>
@@ -86,6 +69,7 @@ export default function PdfToolsPage() {
         {activeTab === 'merge' && <TabMergePdf />}
         {activeTab === 'split' && <PdfSplitByCutNodes />}
         {activeTab === 'compress' && <TabCompressPdf />}
+        {activeTab === 'reduce' && <TabReducePdf />}
         {activeTab === 'scan' && <div>Nội dung Tab PDF Scan sẽ để ở đây...</div>}
       </div>
     </div>
