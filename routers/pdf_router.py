@@ -2,6 +2,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse
 from typing import List, Annotated
 import os
+import urllib.parse
+from fastapi.responses import Response
 
 # Import các logic xử lý từ thư mục services
 from services.pdf_merge_service_react import merge_pdfs_logic
@@ -9,6 +11,7 @@ from services.pdf_split_service_react import get_pdf_thumbnails_logic, split_pdf
 from services.pdf_compress_service_react import compress_pdf_logic
 from services.pdf_reduce_service_react import reduce_pdf_logic
 from services.pdf_version_service_react import run_pdf_version_downgrade
+from services.pdf_remove_blank_service_react import run_remove_blank_pages_batch
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Operations"])
 
@@ -121,4 +124,32 @@ async def api_downgrade_pdf_version(
         filename=f"v{compatibility}_{file.filename}",
         media_type="application/pdf"
     )    
-        
+
+@router.post("/remove-blank-pages")
+async def api_remove_blank_pages(
+    files: List[UploadFile] = File(...),
+    threshold: Annotated[float, Form(...)] = 0.98
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="Vui lòng tải lên ít nhất 1 file PDF")
+
+    files_data = []
+    for f in files:
+        content = await f.read()
+        files_data.append((f.filename, content))
+
+    output_bytes, summary_text, media_type, download_filename = run_remove_blank_pages_batch(
+        files_data, threshold
+    )
+
+    encoded_summary = urllib.parse.quote(summary_text)
+
+    return Response(
+        content=output_bytes,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_filename}"',
+            "X-Remove-Summary": encoded_summary,
+            "Access-Control-Expose-Headers": "X-Remove-Summary, Content-Disposition"
+        }
+    )        
