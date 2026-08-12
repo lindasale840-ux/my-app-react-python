@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Merge PDF API</title>
+</head>
+<body style="font-family: sans-serif; padding: 40px;">
+    <h2>Trang Test API Ghep File PDF</h2>
+    <form action="http://127.0.0.1:8000/api/pdf/merge" method="post" enctype="multipart/form-data" target="_blank">
+        <p>Chọn các file PDF cần ghép (Giữ Ctrl để chọn nhiều file):</p>
+        <input type="file" name="files" multiple accept=".pdf" required>
+        <br><br>
+        <button type="submit" style="padding: 10px 20px; cursor: pointer;">Thực hiện Ghép PDF</button>
+    </form>
+</body>
+</html>
