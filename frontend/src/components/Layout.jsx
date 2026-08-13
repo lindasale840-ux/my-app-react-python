@@ -16,7 +16,7 @@ const PAGES = [
   },
   {
     path: '/pdf-merge',
-    name: 'Ghép Hồ Sơ PDF'
+    name: '5. Tự động hoá hồ sơ'
   },
   
 ];
