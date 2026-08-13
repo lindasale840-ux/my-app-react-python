@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import PdfToolsPage from './pages/PdfToolsPage';
+import PDFSPLIT from './pages/PDFSPLIT';
 
 export default function App() {
   return (
@@ -10,6 +11,8 @@ export default function App() {
         <Routes>
           {/* Page 1: Trang xử lý PDF */}
           <Route path="/" element={<PdfToolsPage />} />
+          {/* Page 2: Trang xử lý PDF */}
+          <Route path="/split" element={<PDFSPLIT />} />
 
           {/* Các Page lớn còn lại (Chưa làm thì hiện chữ giữ chỗ) */}
           <Route path="/excel" element={<h2>Trang 2: Xử lý Excel (Sắp làm)</h2>} />

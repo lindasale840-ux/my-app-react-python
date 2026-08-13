@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 // Danh sách 9 Page lớn của bạn
 const PAGES = [
   { path: '/', name: '1. Xử lý PDF' },
+  { path: '/split', name: '2.🧠 Tách PDF Thông Minh' },
   { path: '/excel', name: '2. Xử lý Excel' },
   { path: '/page-3', name: '3. Chức năng 3' },
   { path: '/page-4', name: '4. Chức năng 4' },

@@ -1,32 +1,34 @@
 FORM MẪU YÊU CẦU CHỨC NĂNG / PAGE MỚI
 
-1. Tên chức năng / Tab: [Tên chức năng]
+1. Tên chức năng / Tab: [Tên Chức Năng]
 2. Cấu trúc Page & Vị trí hiển thị:
-   - Tên Page: [Ví dụ: ExcelToolsPage / ImageToolsPage]
+   - Tên Page: [TÊN_PAGE]
    - File Page Frontend: src/pages/[TenPage].jsx
-   - Tên Tab & Vị trí: [Ví dụ: Tab 1 - Tên Tab]
+   - Route Path trong App.jsx: /[path-name]
 
 3. QUY CHUẨN KĨ THUẬT DỰ ÁN (BẮT BUỘC TUÂN THỦ):
 
    A. BACKEND FASTAPI & ROUTER STRUCTURE:
-      - Tách Router theo Module/Page: Tương tự `pdf_router.py`, tạo file router riêng theo từng Page trong thư mục backend routers (ví dụ: `excel_router.py`, `image_router.py`).
+      - Tách Router theo Module/Page trong backend routers (ví dụ: `excel_router.py`).
       - Cấu trúc File Router Bắt Buộc:
           from fastapi import APIRouter, UploadFile, File, Form, HTTPException
           from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
           router = APIRouter(prefix="/api/[module_name]", tags=["[ModuleName]"])
-      - Đăng ký main.py: Nếu là Router mới, BẮT BUỘC cung cấp đoạn code `app.include_router([module]_router)` để thêm vào file `main.py`.
+      - Đăng ký main.py: Cung cấp đoạn code `app.include_router([module]_router)` cho `main.py`.
 
-   B. FRONTEND PAGE & COMPONENT TEMPLATE:
-      - Cấu trúc Trang: Giữ nguyên Layout của `PdfToolsPage.jsx` (Title -> Navigation Tabs `getTabStyle()` -> Card nội dung trắng padding 20px).
+   B. FRONTEND ROUTING & LAYOUT REGISTRATION:
+      - Cung cấp đoạn code <Route> mới để dán vào file `src/App.jsx`.
+      - Cung cấp thông tin item menu (Path, Label) để thêm vào file `src/components/Layout.jsx`.
+
+   C. FRONTEND PAGE & COMPONENT TEMPLATE:
+      - Layout chuẩn: Title -> Navigation Tabs -> Card nội dung trắng padding 20px.
       - Service Frontend: `src/services/[tenFunction]Service.js` (KHÔNG dùng thư mục api).
       - Component Tab: `src/features/[feature]/[TabComponent].jsx`.
       - Axios Base URL: `http://localhost:8000/api/[module_name]/...`
-      - Thư viện Excel: KHÔNG import `xlsx` ở Frontend, luôn đọc file/cột Excel qua API Backend.
-      - Cập nhật Page: Luôn cung cấp mã hoàn chỉnh của File Page (`[TenPage].jsx`) gồm Import + Button Tabs + Tab Routing.
+      - Cập nhật Page: Mã hoàn chỉnh của File Page (`[TenPage].jsx`).
 
-   C. TÀI LIỆU VÀ GIẢI THÍCH:
-      - Hướng dẫn test nhanh + Ví dụ thực tế.
-      - Cung cấp sẵn đoạn lệnh `git commit` chuẩn.
+   D. TÀI LIỆU & GIT COMMIT:
+      - Hướng dẫn test nhanh + lệnh `git commit` chuẩn.
 
 4. Đoạn code Python Streamlit / Yêu cầu logic hiện tại:
-[Paste code Streamlit hoặc mô tả logic vào đây]
+[Dán code / Logic tại đây]

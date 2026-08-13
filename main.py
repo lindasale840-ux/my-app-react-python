@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers.pdf_router import router as pdf_router
+from routers.pdf_split_router import router as pdf_split_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
@@ -23,3 +24,4 @@ def home():
     return {"message": "API Backend Python đang chạy rất tốt!"}
 
 app.include_router(pdf_router)
+app.include_router(pdf_split_router)
