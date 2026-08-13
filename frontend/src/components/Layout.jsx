@@ -5,6 +5,11 @@ import { Link, useLocation } from 'react-router-dom';
 const PAGES = [
   { path: '/', name: '1. Xử lý PDF' },
   { path: '/split', name: '2.🧠 Tách PDF Thông Minh' },
+  {
+    path: '/pdf-scan-split',
+    name: '3. ⚡ Nhận diện & Tách PDF GCN',
+    icon: 'FileText'
+  },
   { path: '/excel', name: '2. Xử lý Excel' },
   { path: '/page-3', name: '3. Chức năng 3' },
   { path: '/page-4', name: '4. Chức năng 4' },

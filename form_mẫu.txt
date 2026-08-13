@@ -8,7 +8,17 @@ FORM MẪU YÊU CẦU CHỨC NĂNG / PAGE MỚI
 
 3. QUY CHUẨN KĨ THUẬT DỰ ÁN (BẮT BUỘC TUÂN THỦ):
 
-   A. BACKEND FASTAPI & ROUTER STRUCTURE:
+   A. STYLE / GIAO DIỆN FRONTEND (RẤT QUAN TRỌNG):
+      - BẮT BUỘC dùng pure Inline Style trong JSX: style={{ property: 'value' }}
+      - KHÔNG dùng Tailwind CSS (class="flex", "mb-4", "bg-blue-500",...)
+      - Màu sắc chuẩn:
+        + Primary / Button: #007bff (Hover / Active) hoặc #28a745 (Thực hiện/Xác nhận)
+        + Background Card: #ffffff, Border: #ddd hoặc #ccc
+        + Alert Lỗi: Background #f8d7da, Color #721c24
+        + Alert Thành công: Background #d4edda, Color #155724
+      - Giãn cách: Bắt buộc dùng marginBottom (10px - 20px) giữa các nhóm label/input để tránh chồng chữ.
+
+   B. BACKEND FASTAPI & ROUTER STRUCTURE:
       - Tách Router theo Module/Page trong backend routers (ví dụ: `excel_router.py`).
       - Cấu trúc File Router Bắt Buộc:
           from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -16,18 +26,18 @@ FORM MẪU YÊU CẦU CHỨC NĂNG / PAGE MỚI
           router = APIRouter(prefix="/api/[module_name]", tags=["[ModuleName]"])
       - Đăng ký main.py: Cung cấp đoạn code `app.include_router([module]_router)` cho `main.py`.
 
-   B. FRONTEND ROUTING & LAYOUT REGISTRATION:
+   C. FRONTEND ROUTING & LAYOUT REGISTRATION:
       - Cung cấp đoạn code <Route> mới để dán vào file `src/App.jsx`.
       - Cung cấp thông tin item menu (Path, Label) để thêm vào file `src/components/Layout.jsx`.
 
-   C. FRONTEND PAGE & COMPONENT TEMPLATE:
+   D. FRONTEND PAGE & COMPONENT TEMPLATE:
       - Layout chuẩn: Title -> Navigation Tabs -> Card nội dung trắng padding 20px.
       - Service Frontend: `src/services/[tenFunction]Service.js` (KHÔNG dùng thư mục api).
       - Component Tab: `src/features/[feature]/[TabComponent].jsx`.
       - Axios Base URL: `http://localhost:8000/api/[module_name]/...`
       - Cập nhật Page: Mã hoàn chỉnh của File Page (`[TenPage].jsx`).
 
-   D. TÀI LIỆU & GIT COMMIT:
+   E. TÀI LIỆU & GIT COMMIT:
       - Hướng dẫn test nhanh + lệnh `git commit` chuẩn.
 
 4. Đoạn code Python Streamlit / Yêu cầu logic hiện tại:
