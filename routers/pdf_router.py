@@ -13,6 +13,11 @@ from services.pdf_reduce_service_react import reduce_pdf_logic
 from services.pdf_version_service_react import run_pdf_version_downgrade
 from services.pdf_remove_blank_service_react import run_remove_blank_pages_batch
 from services.pdf_group_service_react import parse_excel_columns, process_group_pdfs
+from services.pdf_compare_service_react import (
+    parse_excel_columns,
+    compare_excel_vs_pdf_filenames,
+    compare_excel_vs_pdf_content
+)
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Operations"])
 
@@ -203,4 +208,40 @@ async def api_group_pdf_by_excel(
             }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi xử lý phân loại: {str(e)}")           
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý phân loại: {str(e)}")
+    
+@router.post("/compare-excel-vs-pdf")
+async def api_compare_excel_vs_pdf(
+    excel_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(...),
+    column_index: Annotated[int, Form(...)] = 0,
+    compare_mode: Annotated[str, Form(...)] = "filename", # "filename" hoặc "content"
+    is_scan: Annotated[bool, Form(...)] = False
+):
+    if not pdf_files:
+        raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất 1 file PDF!")
+
+    excel_bytes = await excel_file.read()
+    
+    pdfs_data = []
+    for f in pdf_files:
+        content = await f.read()
+        pdfs_data.append((f.filename, content))
+
+    try:
+        if compare_mode == "filename":
+            result = compare_excel_vs_pdf_filenames(
+                excel_bytes=excel_bytes,
+                pdf_files=pdfs_data,
+                column_index=column_index
+            )
+        else:
+            result = compare_excel_vs_pdf_content(
+                excel_bytes=excel_bytes,
+                pdf_files=pdfs_data,
+                column_index=column_index,
+                is_scan=is_scan
+            )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi thực hiện đối chiếu: {str(e)}")               

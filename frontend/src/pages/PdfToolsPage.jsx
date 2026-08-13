@@ -6,6 +6,7 @@ import TabReducePdf from "../features/pdf/TabReducePdf";
 import TabVersionPdf from "../features/pdf/TabVersionPdf"; // Thêm Tab 5
 import TabRemoveBlankPdf from "../features/pdf/TabRemoveBlankPdf"; // Thêm Tab 6
 import TabGroupPdfByExcel from "../features/pdf/TabGroupPdfByExcel"; // Thêm Tab Gom Nhóm
+import TabCompareExcelVsPdf from "../features/pdf/TabCompareExcelVsPdf"; // Tab 8 Mới
 
 export default function PdfToolsPage() {
   // Quản lý Tab đang chọn (Mặc định là 'merge')
@@ -70,6 +71,10 @@ export default function PdfToolsPage() {
           📂 Phân Loại Theo Excel
         </button>
 
+        <button onClick={() => setActiveTab('compare-excel')} style={getTabStyle('compare-excel')}>
+          🔍 Đối Chiếu Excel vs PDF
+        </button>
+
         <button
           onClick={() => setActiveTab('scan')}
           style={getTabStyle('scan')}
@@ -87,6 +92,7 @@ export default function PdfToolsPage() {
         {activeTab === 'version' && <TabVersionPdf />}
         {activeTab === 'remove-blank' && <TabRemoveBlankPdf />}
         {activeTab === 'group-excel' && <TabGroupPdfByExcel />}
+        {activeTab === 'compare-excel' && <TabCompareExcelVsPdf />}
         {activeTab === 'scan' && <div>Nội dung Tab PDF Scan sẽ để ở đây...</div>}
       </div>
     </div>
