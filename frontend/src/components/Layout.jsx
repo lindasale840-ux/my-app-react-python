@@ -14,6 +14,10 @@ const PAGES = [
     path: '/gcn-locator',
     name: '4 .📊 Định Vị Trang GCN'
   },
+  {
+    path: '/pdf-merge',
+    name: 'Ghép Hồ Sơ PDF'
+  },
   
 ];
 
