@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import PdfToolsPage from './pages/PdfToolsPage';
 import PDFSPLIT from './pages/PDFSPLIT';
 import PdfScanSplit from './pages/PdfScanSplit';
+import GcnLocatorPage from './pages/GcnLocatorPage';
 
 export default function App() {
   return (
@@ -15,6 +16,8 @@ export default function App() {
           {/* Page 2: Trang xử lý PDF */}
           <Route path="/split" element={<PDFSPLIT />} />
           <Route path="/pdf-scan-split" element={<PdfScanSplit />} />
+
+          <Route path="/gcn-locator" element={<GcnLocatorPage />} />
 
           {/* Các Page lớn còn lại (Chưa làm thì hiện chữ giữ chỗ) */}
           <Route path="/excel" element={<h2>Trang 2: Xử lý Excel (Sắp làm)</h2>} />

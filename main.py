@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers.pdf_router import router as pdf_router
 from routers.pdf_split_router import router as pdf_split_router
 from routers.pdf_scan_split_router import router as pdf_scan_split_router
+from routers.gcn_locator_router import router as gcn_locator_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
@@ -27,3 +28,4 @@ def home():
 app.include_router(pdf_router)
 app.include_router(pdf_split_router)
 app.include_router(pdf_scan_split_router)
+app.include_router(gcn_locator_router)

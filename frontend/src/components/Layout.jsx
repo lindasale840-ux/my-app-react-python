@@ -10,14 +10,11 @@ const PAGES = [
     name: '3. ⚡ Nhận diện & Tách PDF GCN',
     icon: 'FileText'
   },
-  { path: '/excel', name: '2. Xử lý Excel' },
-  { path: '/page-3', name: '3. Chức năng 3' },
-  { path: '/page-4', name: '4. Chức năng 4' },
-  { path: '/page-5', name: '5. Chức năng 5' },
-  { path: '/page-6', name: '6. Chức năng 6' },
-  { path: '/page-7', name: '7. Chức năng 7' },
-  { path: '/page-8', name: '8. Chức năng 8' },
-  { path: '/page-9', name: '9. Chức năng 9' },
+  {
+    path: '/gcn-locator',
+    name: '4 .📊 Định Vị Trang GCN'
+  },
+  
 ];
 
 export default function Layout({ children }) {
