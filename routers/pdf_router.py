@@ -4,6 +4,10 @@ from typing import List, Annotated
 import os
 import urllib.parse
 from fastapi.responses import Response
+import zipfile
+import io
+from fastapi.responses import StreamingResponse
+import pandas as pd
 
 # Import các logic xử lý từ thư mục services
 from services.pdf_merge_service_react import merge_pdfs_logic
@@ -245,3 +249,81 @@ async def api_compare_excel_vs_pdf(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi thực hiện đối chiếu: {str(e)}")               
+    
+
+@router.post("/collect-and-zip")
+async def collect_and_zip_pdf(
+    excel_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(...),
+    selected_col: str = Form(...),
+    zip_name: str = Form("Ket_Qua_Gom_PDF"),
+    advanced_mode: bool = Form(False),
+    cut_length: int = Form(9)
+):
+    try:
+        # 1. Đọc file Excel
+        contents = await excel_file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        
+        if selected_col not in df.columns:
+            raise HTTPException(status_code=400, detail=f"Không tìm thấy cột '{selected_col}' trong file Excel.")
+            
+        excel_codes = df[selected_col].dropna().astype(str).str.strip().unique()
+        
+        # 2. Đọc danh sách file PDF tải lên vào bộ nhớ
+        uploaded_pdfs = {}
+        for pdf in pdf_files:
+            pdf_bytes = await pdf.read()
+            uploaded_pdfs[pdf.filename] = pdf_bytes
+
+        matched_files = []  # Lưu tuple: (filename, bytes_data, subfolder_name)
+        missing_codes = []
+
+        # 3. Tiến hành đối chiếu và phân nhóm
+        for code in excel_codes:
+            subfolder_name = ""
+            if advanced_mode:
+                subfolder_name = code[:cut_length].strip()
+
+            found = False
+            for filename, file_bytes in uploaded_pdfs.items():
+                if code in filename:
+                    matched_files.append((filename, file_bytes, subfolder_name))
+                    found = True
+
+            if not found:
+                missing_codes.append(code)
+
+        if not matched_files:
+            return {
+                "success": False,
+                "message": "Không tìm thấy file PDF nào trùng khớp với danh sách trong Excel!",
+                "missing_codes": missing_codes
+            }
+
+        # 4. Tạo file ZIP trong Memory Buffer
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for filename, file_bytes, subfolder in matched_files:
+                if advanced_mode and subfolder:
+                    archive_name = f"{subfolder}/{filename}"
+                else:
+                    archive_name = filename
+                
+                zipf.writestr(archive_name, file_bytes)
+
+        zip_buffer.seek(0)
+        
+        # Đóng gói và trả về stream file ZIP để Frontend tải về trực tiếp
+        filename_out = f"{zip_name}.zip"
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename_out}",
+                "X-Missing-Codes": ",".join(missing_codes)
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Có lỗi xảy ra: {str(e)}")    
