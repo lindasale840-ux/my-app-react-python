@@ -7,6 +7,7 @@ from routers.gcn_locator_router import router as gcn_locator_router
 from routers.pdf_merge_router import router as pdf_merge_router
 from routers.pdf_excel_router import router as pdf_excel_router
 from routers.group_duplicate_router import router as group_duplicate_router
+from routers.excel_router import router as excel_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
@@ -36,3 +37,4 @@ app.include_router(gcn_locator_router)
 app.include_router(pdf_merge_router)
 app.include_router(pdf_excel_router)
 app.include_router(group_duplicate_router)
+app.include_router(excel_router)
