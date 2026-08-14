@@ -13,19 +13,25 @@ router = APIRouter(prefix="/api/group-duplicate", tags=["Group Duplicate"])
 
 
 def get_base_name(filename: str) -> str:
-    name = os.path.splitext(filename)[0]
+    # 1. Bỏ đuôi file (.pdf, .PDF, ...)
+    name = os.path.splitext(filename)[0].strip()
 
-    # Khớp mẫu ABC_1, ABC_02, ABC_123
-    match = re.match(r"^(.*?)_(\d{1,3})$", name)
-    if match:
-        return match.group(1).strip()
+    # 2. Xử lý trường hợp có số thứ tự trong ngoặc đơn: "A (1)", "A(01)", "A_ (1)"
+    # Loại bỏ hậu tố dạng (1), (2), (01)... ở cuối tên
+    name = re.sub(r"[\s_]*\(\d+\)$", "", name, flags=re.IGNORECASE).strip()
 
-    # Khớp mẫu ABC(1), ABC(02), ABC(123)
-    match = re.match(r"^(.*?)\((\d{1,3})\)$", name)
-    if match:
-        return match.group(1).strip()
+    # 3. Xử lý trường hợp đuôi dấu gạch dưới / gạch ngang kèm số: "A_1", "A_02", "A - 1", "A_1_2"
+    # Lặp lại để xử lý triệt để nếu bị lặp hậu tố (ví dụ: A_1_2)
+    while True:
+        new_name = re.sub(r"[\s_-]+\d+$", "", name, flags=re.IGNORECASE).strip()
+        if new_name == name:
+            break
+        name = new_name
 
-    return name.strip()
+    # 4. Làm sạch các dấu gạch dưới / gạch ngang / khoảng trắng còn dư ở cuối tên
+    name = re.sub(r"[\s_-]+$", "", name).strip()
+
+    return name
 
 
 @router.post("/process")
