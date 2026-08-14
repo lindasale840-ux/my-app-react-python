@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import MergeByNameTab from '../features/pdfMerge/MergeByNameTab';
 import MergeByExcelTab from '../features/pdfMerge/MergeByExcelTab';
+import PdfExcelCompareTab from '../features/pdfMerge/PdfExcelCompareTab';
 
 const PdfMergePage = () => {
   const [activeTab, setActiveTab] = useState('tab1');
@@ -9,6 +10,7 @@ const PdfMergePage = () => {
   const tabs = [
     { id: 'tab1', label: '📎 Ghép theo tên file' },
     { id: 'tab2', label: '📊 Ghép theo Excel' },
+    { id: 'compare', label: '📊 Đối chiếu PDF - Excel' },
     // { id: 'tab2', label: 'Tab 2 - Chức năng tiếp theo' },
   ];
 
@@ -59,6 +61,7 @@ const PdfMergePage = () => {
       }}>
         {activeTab === 'tab1' && <MergeByNameTab />}
         {activeTab === 'tab2' && <MergeByExcelTab />}
+        {activeTab === 'compare' && <PdfExcelCompareTab />}
         {/* {activeTab === 'tab2' && <Tab2Component />} */}
       </div>
     </div>
