@@ -22,25 +22,38 @@ def normalize(value):
         return ""
     return str(value).strip().upper()
 
+# =========================================================
+# CODE ĐÃ CẬP NHẬT HOÀN CHỈNH CHO HÀM process_comparison
+# =========================================================
 def process_comparison(pdf_files: List[UploadFile], excel_file: UploadFile, compare_type: str):
     if compare_type not in COLUMN_MAP:
-        raise HTTPException(status_code=400, detail=f"Loại đối chiếu '{compare_type}' không hợp lệ. Các loại hợp lệ: {list(COLUMN_MAP.keys())}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Loại đối chiếu '{compare_type}' không hợp lệ."
+        )
 
     compare_col = COLUMN_MAP[compare_type]
 
     try:
-
         excel_bytes = excel_file.file.read()
-        df = pd.read_excel(io.BytesIO(excel_bytes), header=None, dtype=str)
+        # 1. Bỏ qua header dòng 1 (header=0)
+        df = pd.read_excel(io.BytesIO(excel_bytes), header=0, dtype=str)
 
         if compare_col >= len(df.columns):
-            raise HTTPException(status_code=400, detail=f"File Excel không có cột chỉ số {compare_col} (Tổng số cột: {len(df.columns)})")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File Excel không có cột chỉ số {compare_col} (Tổng số cột: {len(df.columns)})"
+            )
 
         excel_values = set()
-        for value in df[compare_col].tolist():
+        
+        # 2. Dùng .iloc[:, compare_col] để lấy dữ liệu theo đúng vị trí chỉ số cột (bắt đầu từ dòng 2)
+        for value in df.iloc[:, compare_col].tolist():
             val_norm = normalize(value)
             if val_norm:
                 excel_values.add(val_norm)
+
+        # các đoạn code xử lý PDF bên dưới giữ nguyên không đổi...
 
         pdf_values = []
         for file in pdf_files:
