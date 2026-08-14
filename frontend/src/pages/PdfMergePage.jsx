@@ -4,6 +4,7 @@ import MergeByExcelTab from '../features/pdfMerge/MergeByExcelTab';
 import PdfExcelCompareTab from '../features/pdfMerge/PdfExcelCompareTab';
 import GroupDuplicateTab from '../features/pdfMerge/GroupDuplicateTab';
 import ExcelFillTab from '../features/pdfMerge/ExcelFillTab';
+import RenamePdfByExcelTab from '../features/pdfMerge/RenamePdfByExcelTab';
 
 const PdfMergePage = () => {
   const [activeTab, setActiveTab] = useState('tab1');
@@ -15,6 +16,7 @@ const PdfMergePage = () => {
     { id: 'compare', label: '📊 Đối chiếu PDF - Excel' },
     { id: 'tab4', label: '📂 Gom hồ sơ trùng tên' },
     { id: 'tab5', label: '📑 Điền Form Excel & Trích xuất PDF' },
+    { id: 'tab6', label: '🏷️ Đổi tên file PDF theo Excel' },
     // { id: 'tab2', label: 'Tab 2 - Chức năng tiếp theo' },
   ];
 
@@ -68,6 +70,7 @@ const PdfMergePage = () => {
         {activeTab === 'compare' && <PdfExcelCompareTab />}
         {activeTab === 'tab4' && <GroupDuplicateTab />}
         {activeTab === 'tab5' && <ExcelFillTab />}
+        {activeTab === 'tab6' && <RenamePdfByExcelTab />}
         {/* {activeTab === 'tab2' && <Tab2Component />} */}
       </div>
     </div>
