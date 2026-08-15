@@ -22,7 +22,10 @@ const PAGES = [
     path: '/excel-tools',
     name: '6. 📊 Xử Lý Excel Nâng Cao'
   },
-  
+  {
+    path: '/file-renamer',
+    name: '7. Đổi tên File Hàng loạt'
+  },
 ];
 
 export default function Layout({ children }) {
