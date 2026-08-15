@@ -12,11 +12,15 @@ const PAGES = [
   },
   {
     path: '/gcn-locator',
-    name: '4 .📊 Định Vị Trang GCN'
+    name: '4. 📊 Định Vị Trang GCN'
   },
   {
     path: '/pdf-merge',
     name: '5. Tự động hoá hồ sơ'
+  },
+  {
+    path: '/excel-tools',
+    name: '6. 📊 Xử Lý Excel Nâng Cao'
   },
   
 ];

@@ -6,6 +6,7 @@ import PDFSPLIT from './pages/PDFSPLIT';
 import PdfScanSplit from './pages/PdfScanSplit';
 import GcnLocatorPage from './pages/GcnLocatorPage';
 import PdfMergePage from './pages/PdfMergePage';
+import ExcelToolsPage from './pages/ExcelToolsPage';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
 
           <Route path="/gcn-locator" element={<GcnLocatorPage />} />
           <Route path="/pdf-merge" element={<PdfMergePage />} />
+          <Route path="/excel-tools" element={<ExcelToolsPage />} />
 
           {/* Các Page lớn còn lại (Chưa làm thì hiện chữ giữ chỗ) */}
           <Route path="/excel" element={<h2>Trang 2: Xử lý Excel (Sắp làm)</h2>} />

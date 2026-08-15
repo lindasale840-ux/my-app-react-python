@@ -9,6 +9,7 @@ from routers.pdf_excel_router import router as pdf_excel_router
 from routers.group_duplicate_router import router as group_duplicate_router
 from routers.excel_router import router as excel_router
 from routers.pdf_rename_router import router as pdf_rename_router
+from routers.excel_multi_lookup_router import router as excel_multi_lookup_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
@@ -40,3 +41,4 @@ app.include_router(pdf_excel_router)
 app.include_router(group_duplicate_router)
 app.include_router(excel_router)
 app.include_router(pdf_rename_router)
+app.include_router(excel_multi_lookup_router)
