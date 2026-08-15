@@ -5,6 +5,7 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from typing import List
+from urllib.parse import quote  # 👈 Bổ sung thêm hàm này để xử lý Tiếng Việt trong Header
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
@@ -83,11 +84,14 @@ async def group_duplicate_files(files: List[UploadFile] = File(...)):
                     arcname = os.path.relpath(full_path, output_root)
                     zipf.write(full_path, arcname)
 
+        # 4. Mã hóa Tiếng Việt cho Header để tránh lỗi latin-1 codec
+        safe_largest_group = quote(str(largest_group))
+
         headers = {
             "Access-Control-Expose-Headers": "X-Total-Groups, X-Total-Files, X-Largest-Group, X-Largest-Count",
             "X-Total-Groups": str(len(groups)),
             "X-Total-Files": str(total_files),
-            "X-Largest-Group": str(largest_group),
+            "X-Largest-Group": safe_largest_group,
             "X-Largest-Count": str(largest_count),
         }
 

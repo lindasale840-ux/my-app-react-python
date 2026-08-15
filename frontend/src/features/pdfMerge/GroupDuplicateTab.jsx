@@ -36,7 +36,8 @@ const GroupDuplicateTab = () => {
       // Đọc thông số thống kê từ response headers
       const totalGroups = response.headers['x-total-groups'] || '0';
       const totalFiles = response.headers['x-total-files'] || '0';
-      const largestGroup = response.headers['x-largest-group'] || '';
+      const largestGroupEncoded = response.headers['x-largest-group'] || '';
+      const largestGroup = decodeURIComponent(largestGroupEncoded);
       const largestCount = response.headers['x-largest-count'] || '0';
 
       setStats({
