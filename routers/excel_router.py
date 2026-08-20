@@ -23,12 +23,11 @@ def clean_filename(filename):
     return re.sub(r'[\\/*?:"<>|]', '_', str(filename)).strip()
 
 def clean_slash(value):
-    """Nếu giá trị là '/' (hoặc chứa khoảng trắng xung quanh '/') thì đổi thành 'NA'"""
     if pd.isna(value) or value is None:
         return ""
     val_str = str(value).strip()
-    if val_str == "/":
-        return "NA"
+    if val_str == "/" or val_str == "":
+        return "NA" if val_str == "/" else ""
     return val_str
 
 def format_date_mmm(value):
@@ -98,7 +97,7 @@ def extract_code_from_pdf(pdf_file_obj):
                     break
 
                 if found_section_4 and line_str:
-                    match = re.search(r'([A-Za-z0-9]+/[A-Za-z0-9\(\)\-]+)', line_str)
+                    match = re.search(r'\b([A-Za-z0-9]+(?:[/\-_][A-Za-z0-9\(\)\-]+)+)\b', line_str)
                     if match:
                         code = match.group(1)
                         if code not in extracted_codes:
