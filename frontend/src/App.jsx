@@ -8,6 +8,7 @@ import GcnLocatorPage from './pages/GcnLocatorPage';
 import PdfMergePage from './pages/PdfMergePage';
 import ExcelToolsPage from './pages/ExcelToolsPage';
 import FileRenamerPage from './pages/FileRenamerPage';
+import ExcelToPdfPage from './pages/ExcelToPdfPage';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/pdf-merge" element={<PdfMergePage />} />
           <Route path="/excel-tools" element={<ExcelToolsPage />} />
           <Route path="/file-renamer" element={<FileRenamerPage />} />
+          <Route path="/excel-to-pdf" element={<ExcelToPdfPage />} />
 
           {/* Các Page lớn còn lại (Chưa làm thì hiện chữ giữ chỗ) */}
           <Route path="/excel" element={<h2>Trang 2: Xử lý Excel (Sắp làm)</h2>} />

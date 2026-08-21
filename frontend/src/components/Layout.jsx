@@ -26,6 +26,10 @@ const PAGES = [
     path: '/file-renamer',
     name: '7. Đổi tên File Hàng loạt'
   },
+  {
+    path: '/excel-to-pdf',
+    name: '8. Xuất PDF Hàng Loạt'
+  },
 ];
 
 export default function Layout({ children }) {
