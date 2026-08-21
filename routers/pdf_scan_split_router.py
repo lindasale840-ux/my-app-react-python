@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import fitz  # PyMuPDF
 import pandas as pd
 import numpy as np
@@ -173,6 +173,45 @@ def process_page_ocr(page_num, page, excel_gcn_list, dpi=300, top_percent=0.6, l
         }
     except Exception as e:
         return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
+    
+# ---------------------------------------------------------------------------
+# HELPER MỚI (Dành riêng cho Tab 2 - Trích xuất KHÁCH QUAN mọi Mã GCN)
+# ---------------------------------------------------------------------------
+def extract_gcn_raw_standalone(text: str) -> Optional[str]:
+    """Tìm mã GCN thực tế trong PDF (Khắt khe hơn để tránh bắt nhầm chữ THUYETMINH, TEC...)"""
+    if not text:
+        return None
+
+    text = text.upper()
+    # Chỉ bắt các chuỗi bắt đầu bằng C hoặc T, có định dạng chuẩn kiểu C202605-01-0162 hoặc C202605-00162
+    candidates = re.findall(r'\b[CT][A-Z0-9]{5,8}[-\/][A-Z0-9]{1,3}[-\/][A-Z0-9]{3,6}\b', text)
+    
+    if not candidates:
+        # Thử mẫu phụ có 1 dấu gạch ngang (VD: C202605-00162)
+        candidates = re.findall(r'\b[CT][A-Z0-9]{5,8}[-\/][A-Z0-9]{3,8}\b', text)
+
+    if candidates:
+        code = re.sub(r'\s+', '', candidates[0])
+        # Tự động sửa lỗi OCR hay đọc nhầm số 0 thành chữ O ở phần đuôi mã
+        prefix = code[0]
+        rest = code[1:]
+        rest_fixed = re.sub(r'(?<=[-\/0-9])O(?=[0-9])|(?<=[0-9])O(?=[-\/0-9])', '0', rest)
+        return f"{prefix}{rest_fixed}"
+
+    return None
+
+def process_page_ocr_standalone(page_num, page, dpi=300, top_percent=0.6, lang='vie+eng'):
+    """Hàm OCR cho Tab 2: Bắt tất cả mã GCN có trên trang"""
+    try:
+        img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
+        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. '
+        page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
+        page_text = re.sub(r'\n+', ' ', page_text).strip()
+
+        detected_gcn = extract_gcn_raw_standalone(page_text)
+        return {'page_num': page_num, 'gcn': detected_gcn}
+    except Exception:
+        return {'page_num': page_num, 'gcn': None}
 
 
 # ---------------------------------------------------------------------------
@@ -405,3 +444,194 @@ async def process_pdf_split(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi hệ thống: {str(e)}")
+    
+    
+def normalize_fuzzy_key(s: str) -> str:
+    """
+    Quy đổi tất cả các ký tự hay bị OCR đọc nhầm về một 'Dạng đại diện duy nhất'.
+    Giúp 0/O, 1/I/7/L, C/Q, T/+ hòa làm 1 khi so sánh.
+    """
+    if not s:
+        return ""
+    # 1. Xóa toàn bộ dấu phân cách
+    clean = re.sub(r'[-\s\.\/]', '', str(s).upper())
+    if not clean:
+        return ""
+
+    # 2. Bảng quy đổi lỗi OCR kinh điển
+    # Giữ nguyên ký tự đầu (C/T), chỉ sửa phần thân mã
+    prefix = clean[0]
+    body = clean[1:]
+    
+    # Ép tất cả O -> 0, I/L/7 -> 1, Q/D -> C (nếu có)
+    body = body.replace('O', '0').replace('I', '1').replace('L', '1').replace('7', '1')
+    
+    return f"{prefix}{body}"
+
+
+def generate_ocr_variants(candidate: str) -> list:
+    """
+    Tạo ra danh sách tất cả các biến thể có thể xảy ra từ kết quả quét OCR
+    (Tham khảo theo đúng thuật toán sinh biến thể của bạn)
+    """
+    if not candidate:
+        return []
+        
+    norm = re.sub(r'[-\s\.\/]', '', str(candidate).upper())
+    variants = [norm]
+    
+    if len(norm) >= 8:
+        dau = norm[0]
+        sau_so_dau = norm[1:7]
+        phan_he = norm[7]
+        so_seri = norm[8:]
+        
+        # Biến thể cho Phân hệ (0 <-> O)
+        phan_he_opts = [phan_he]
+        if phan_he == '0': phan_he_opts.append('O')
+        elif phan_he == 'O': phan_he_opts.append('0')
+        
+        # Biến thể cho Số Seri (O -> 0 và 0 -> O)
+        so_seri_opts = [so_seri]
+        if 'O' in so_seri: so_seri_opts.append(so_seri.replace('O', '0'))
+        if '0' in so_seri: so_seri_opts.append(so_seri.replace('0', 'O'))
+        
+        for ph in phan_he_opts:
+            for ss in so_seri_opts:
+                v = f"{dau}{sau_so_dau}{ph}{ss}"
+                variants.append(v)
+                
+    return list(dict.fromkeys(variants))
+    
+# ---------------------------------------------------------------------------
+# ENDPOINT TAB 2 (ĐÃ ĐƯỢC CẬP NHẬT CHUẨN XÁC CHÚC NĂNG ĐỐI CHIẾU)
+# ---------------------------------------------------------------------------
+@router.post("/check_missing")
+async def check_missing_gcn(
+    pdf_file: UploadFile = File(...),
+    excel_file: UploadFile = File(...)
+):
+    try:
+        pdf_bytes = await pdf_file.read()
+        excel_bytes = await excel_file.read()
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total_pages = len(doc)
+
+        if total_pages == 0:
+            raise HTTPException(status_code=400, detail="File PDF không chứa trang nào.")
+
+       # 1. Trích xuất Excel & Tạo map chuẩn hóa kép (Map gốc & Map Fuzzy)
+        try:
+            df = pd.read_excel(io.BytesIO(excel_bytes), dtype=str)
+            gcn_col_name = df.columns[0]
+            for col in df.columns:
+                if "GCN" in str(col).upper() or "CHỨNG NHẬN" in str(col).upper():
+                    gcn_col_name = col
+                    break
+            
+            df[gcn_col_name] = df[gcn_col_name].fillna("").str.strip().str.upper()
+            excel_gcn_raw_list = [x for x in df[gcn_col_name].unique().tolist() if x and len(str(x)) > 2]
+            
+            # Map 1: Fuzzy Key -> Mã hiển thị Excel chuẩn
+            excel_fuzzy_map = {}
+            # Map 2: Exact Key -> Mã hiển thị Excel chuẩn
+            excel_exact_map = {}
+
+            for gcn in excel_gcn_raw_list:
+                exact_k = re.sub(r'[-\s\.\/]', '', str(gcn).upper())
+                fuzzy_k = normalize_fuzzy_key(gcn)
+                
+                excel_exact_map[exact_k] = str(gcn)
+                excel_fuzzy_map[fuzzy_k] = str(gcn)
+
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Lỗi đọc file Excel: {str(e)}")
+
+        # 2. Quét OCR PDF KHÁCH QUAN (Không dùng excel_gcn_list để lọc)
+        page_results = []
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(process_page_ocr_standalone, i, doc[i], 300, 0.6): i
+                for i in range(total_pages)
+            }
+            for future in as_completed(futures):
+                page_results.append(future.result())
+
+        doc.close()
+
+        # 3. Thu thập danh sách mã quét được từ PDF (Áp dụng Sinh Biến Thể + Match Thông Minh)
+        pdf_detected_map = {} # Khóa fuzzy -> Mã hiển thị đại diện
+
+        for res in page_results:
+            raw_gcn = res.get('gcn')
+            if not raw_gcn:
+                continue
+
+            # A. Sinh toàn bộ biến thể từ chuỗi OCR
+            variants = generate_ocr_variants(raw_gcn)
+            
+            matched_excel_code = None
+            # B. Thử dò từng biến thể xem có nằm trong Excel không
+            for var in variants:
+                exact_k = re.sub(r'[-\s\.\/]', '', var)
+                fuzzy_k = normalize_fuzzy_key(var)
+                
+                if exact_k in excel_exact_map:
+                    matched_excel_code = excel_exact_map[exact_k]
+                    break
+                elif fuzzy_k in excel_fuzzy_map:
+                    matched_excel_code = excel_fuzzy_map[fuzzy_k]
+                    break
+
+            # C. Xác định Khóa và Tên hiển thị cho Mã PDF vừa quét
+            fuzzy_key = normalize_fuzzy_key(raw_gcn)
+            
+            if matched_excel_code:
+                # Nếu khớp biến thể với Excel -> Lấy tên đẹp từ Excel
+                pdf_detected_map[fuzzy_key] = matched_excel_code
+            else:
+                # Nếu Excel ĐÃ BỊ XÓA MÃ NÀY -> Vẫn giữ lại mã (chuyển các chữ O lỗi trong seri thành 0)
+                # Đảm bảo KHÔNG BỊ MẤT MÃ khi Excel bị xóa!
+                best_fix = raw_gcn
+                if len(raw_gcn) > 8:
+                    prefix = raw_gcn[:8]
+                    rest = raw_gcn[8:].replace('O', '0')
+                    best_fix = f"{prefix}{rest}"
+                pdf_detected_map[fuzzy_key] = best_fix
+
+        # 4. Phân loại theo Tập Hợp (Lấy PDF làm Chuẩn)
+        excel_fuzzy_keys = set(excel_fuzzy_map.keys())
+        pdf_fuzzy_keys = set(pdf_detected_map.keys())
+
+        matched_keys = pdf_fuzzy_keys.intersection(excel_fuzzy_keys)
+        missing_keys = pdf_fuzzy_keys - excel_fuzzy_keys  # PDF có mà Excel không có -> Báo THIẾU
+        extra_keys = excel_fuzzy_keys - pdf_fuzzy_keys    # Excel có mà PDF không có -> Báo THỪA
+
+        matched_gcns = sorted([pdf_detected_map[k] for k in matched_keys])
+        missing_gcns = sorted([pdf_detected_map[k] for k in missing_keys])
+        extra_gcns = sorted([excel_fuzzy_map[k] for k in extra_keys])
+
+        total_pdf = len(pdf_fuzzy_keys)
+        matched_count = len(matched_gcns)
+        match_rate = f"{(matched_count / total_pdf * 100):.1f}%" if total_pdf > 0 else "0.0%"
+
+        return JSONResponse(content={
+            "success": True,
+            "summary": {
+                "total_pdf_detected": total_pdf,
+                "total_excel": len(excel_fuzzy_keys),
+                "matched_count": matched_count,
+                "missing_count": len(missing_gcns),
+                "extra_count": len(extra_gcns),
+                "match_rate": match_rate
+            },
+            "details": {
+                "missing": missing_gcns,
+                "extra": extra_gcns,
+                "matched": matched_gcns
+            }
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý đối chiếu: {str(e)}")
