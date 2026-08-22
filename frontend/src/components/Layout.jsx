@@ -30,6 +30,10 @@ const PAGES = [
     path: '/excel-to-pdf',
     name: '8. Xuất PDF Hàng Loạt'
   },
+  {
+    path: '/rename-pdf',
+    name: '9. Đổi Tên PDF Theo Excel'
+  },
 ];
 
 export default function Layout({ children }) {
