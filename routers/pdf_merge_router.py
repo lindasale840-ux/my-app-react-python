@@ -32,6 +32,7 @@ async def merge_by_name(
 
         merged_count = 0
         skipped_count = 0
+        skipped_files_log = []  # Danh sách lưu các file không khớp
 
         for file_a in files_a:
             file_name = file_a.filename
@@ -44,6 +45,7 @@ async def merge_by_name(
 
             if key not in dict_b_paths:
                 skipped_count += 1
+                skipped_files_log.append(f"File A: {file_name} -> Không tìm thấy file B trùng tên tương ứng.")
                 continue
 
             path_b = dict_b_paths[key]
@@ -64,10 +66,23 @@ async def merge_by_name(
             merged_count += 1
 
         if merged_count == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             raise HTTPException(
                 status_code=400,
-                detail=f"Không tìm thấy file nào trùng tên để ghép. Bỏ qua {skipped_count} file."
+                detail=f"Không tìm thấy file nào trùng tên để ghép. Đã bỏ qua {skipped_count} file."
             )
+
+        # Xuất file Log TXT lưu các file bị bỏ qua
+        log_file_path = os.path.join(output_dir, "Log_Merged_By_Name.txt")
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write("=== BÁO CÁO CÁC FILE KHÔNG THỂ GHÉP NỐI ===\n")
+            f.write(f"Tổng số file ghép thành công: {merged_count}\n")
+            f.write(f"Tổng số file bị bỏ qua: {skipped_count}\n\n")
+            if skipped_files_log:
+                f.write("CHI TIẾT DANH SÁCH BỊ BỎ QUA:\n")
+                f.write("\n".join(skipped_files_log))
+            else:
+                f.write("Tất cả các file A đều tìm thấy file B khớp tên tương ứng!")
 
         zip_path = os.path.join(temp_dir, "Merged_By_Name.zip")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -162,21 +177,35 @@ async def merge_by_excel(
         report_rows = []
         success_count = 0
 
-        for _, row in df.iterrows():
+        for row_idx, row in df.iterrows():
             file_a_name = str(row[column_a]).strip()
             file_b_name = str(row[column_b]).strip()
 
             if not file_a_name and not file_b_name:
                 continue
 
+            # Kiểm tra trường hợp để ghi log đối chiếu chi tiết
+            if not file_a_name:
+                report_rows.append([f"Dòng {row_idx + 2}", file_b_name, "Tên File A trong Excel bị rỗng"])
+                continue
+
+            if not file_b_name:
+                report_rows.append([file_a_name, f"Dòng {row_idx + 2}", "Tên File B trong Excel bị rỗng"])
+                continue
+
+            if file_a_name not in dict_a and file_b_name not in dict_b:
+                report_rows.append([file_a_name, file_b_name, "Thiếu cả File A và File B"])
+                continue
+
             if file_a_name not in dict_a:
-                report_rows.append([file_a_name, file_b_name, "Thiếu File A"])
+                report_rows.append([file_a_name, file_b_name, "Thiếu File A thực tế"])
                 continue
 
             if file_b_name not in dict_b:
-                report_rows.append([file_a_name, file_b_name, "Thiếu File B"])
+                report_rows.append([file_a_name, file_b_name, "Thiếu File B thực tế"])
                 continue
 
+            # Tiến hành gộp PDF khi đủ cả 2 file
             writer = PdfWriter()
 
             # Đọc & thêm các trang từ File A
@@ -197,13 +226,14 @@ async def merge_by_excel(
             report_rows.append([file_a_name, file_b_name, "OK"])
 
         if len(report_rows) == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             raise HTTPException(status_code=400, detail="File Excel không có dòng dữ liệu hợp lệ")
 
-        # Xuất file báo cáo Excel
+        # Xuất file báo cáo Excel (nằm trực tiếp trong thư mục nén ZIP)
         report_path = os.path.join(output_dir, "Merge_Report.xlsx")
         pd.DataFrame(
             report_rows,
-            columns=["File A", "File B", "Ket Qua"]
+            columns=["File A (Excel)", "File B (Excel)", "Trạng Thái Ghép Nối"]
         ).to_excel(report_path, index=False)
 
         # Nén thư mục kết quả thành ZIP
