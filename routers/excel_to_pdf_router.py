@@ -4,7 +4,7 @@ import tempfile
 import zipfile
 import traceback
 from typing import List
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from pypdf import PdfWriter
 
@@ -29,6 +29,11 @@ except ImportError:
         WIN32_AVAILABLE = False
 
 router = APIRouter(prefix="/api/excel-to-pdf", tags=["ExcelToPdf"])
+
+
+def remove_temp_dir(path: str):
+    """Hàm dọn dẹp thư mục tạm sau khi FastAPI trả file về client thành công"""
+    shutil.rmtree(path, ignore_errors=True)
 
 
 def convert_excel_to_pdf_win32(excel_path: str, pdf_path: str):
@@ -78,16 +83,15 @@ def convert_excel_to_pdf_win32(excel_path: str, pdf_path: str):
 
 @router.post("/convert")
 async def batch_convert_excel_to_pdf(
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     export_type: str = Form("zip")  # 'zip' hoặc 'single_pdf'
 ):
     if not files:
         raise HTTPException(status_code=400, detail="Vui lòng tải lên ít nhất một file Excel.")
 
-    # Tạo thư mục tạm tại thư mục làm việc hiện tại để tránh lỗi đường dẫn tiếng Việt
-    base_temp_dir = os.path.join(os.getcwd(), "temp_excel_pdf")
-    os.makedirs(base_temp_dir, exist_ok=True)
-    temp_dir = tempfile.mkdtemp(dir=base_temp_dir)
+    # Tạo thư mục tạm an toàn trong thư mục Temp của Hệ Điều Hành
+    temp_dir = tempfile.mkdtemp()
 
     try:
         generated_pdf_paths = []
@@ -128,6 +132,8 @@ async def batch_convert_excel_to_pdf(
                 for pdf_name, pdf_path in generated_pdf_paths:
                     zipf.write(pdf_path, arcname=pdf_name)
 
+            # Đăng ký dọn dẹp thư mục tạm sau khi người dùng tải xong
+            background_tasks.add_task(remove_temp_dir, temp_dir)
             return FileResponse(path=zip_path, filename=zip_filename, media_type="application/zip")
 
         elif export_type == "single_pdf":
@@ -141,13 +147,21 @@ async def batch_convert_excel_to_pdf(
             merger.write(merged_path)
             merger.close()
 
+            # Đăng ký dọn dẹp thư mục tạm sau khi người dùng tải xong
+            background_tasks.add_task(remove_temp_dir, temp_dir)
             return FileResponse(path=merged_path, filename=merged_filename, media_type="application/pdf")
 
         else:
             raise HTTPException(status_code=400, detail="Tham số export_type không hợp lệ.")
 
+    except HTTPException:
+        # Nếu có lỗi HTTP xảy ra, dọn dẹp thư mục tạm ngay lập tức
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
     except Exception as e:
-        # In chi tiết lỗi ra Terminal để dễ kiểm tra
+        # Dọn dẹp thư mục tạm nếu gặp lỗi hệ thống khác
+        shutil.rmtree(temp_dir, ignore_errors=True)
         print("\n--- CHI TIẾT LỖI CONVERT EXCEL ---")
         traceback.print_exc()
         print("-----------------------------------\n")
