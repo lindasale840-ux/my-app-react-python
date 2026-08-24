@@ -23,17 +23,27 @@ def clean_filename(filename):
     return re.sub(r'[\\/*?:"<>|]', '_', str(filename)).strip()
 
 def clean_slash(value):
+    """
+    Chuẩn hóa giá trị ô:
+    Chuyển toàn bộ các trường hợp Rỗng, Khoảng trắng, "/", "N/A", "NA" thành "NA"
+    """
     if pd.isna(value) or value is None:
-        return ""
+        return "NA"
+    
     val_str = str(value).strip()
-    if val_str == "/" or val_str == "":
-        return "NA" if val_str == "/" else ""
+    
+    # Kiểm tra các trường hợp rỗng, "/", "N/A" (không phân biệt hoa/thường)
+    if val_str == "" or val_str == "/" or val_str.upper() in ["N/A", "NA"]:
+        return "NA"
+        
     return val_str
 
 def format_date_mmm(value):
     """Chuyển đổi ngày tháng về định dạng DD/MMM/YYYY (ví dụ: 15/Jan/2026)"""
-    if pd.isna(value) or value is None or str(value).strip() == "/":
-        return ""
+    str_val = clean_slash(value)
+    if str_val == "NA":
+        return "NA"
+    
     dt = pd.to_datetime(value, errors='coerce')
     if pd.isna(dt):
         return str(value).strip()
@@ -144,7 +154,8 @@ def apply_transformation(val, transform_type, raw_id="", pdf_data_map=None):
         return format_date_mmm(val)
 
     elif transform_type == "Tra cứu PDF theo Mã GCN":
-        return pdf_data_map.get(str_val, "") if pdf_data_map else ""
+        found_pdf_val = pdf_data_map.get(str_val, "") if pdf_data_map else ""
+        return clean_slash(found_pdf_val)
 
     elif transform_type == "Viết HOA toàn bộ":
         return str_val.upper()
@@ -198,7 +209,6 @@ async def process_excel_form(
         # 2. Đọc File Tổng
         file_tong_bytes = io.BytesIO(await file_tong.read())
         df = pd.read_excel(file_tong_bytes)
-        df = df.replace(r'^\s*/\s*$', 'NA', regex=True)
 
         id_col = mapping_config.get("id_column")
         valid_rows = [r for _, r in df.iterrows() if id_col in r and pd.notna(r[id_col]) and str(r[id_col]).strip() and str(r[id_col]).strip().lower() != 'nan']
