@@ -6,6 +6,7 @@ import pandas as pd
 from typing import List
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+from urllib.parse import quote
 
 router = APIRouter(prefix="/api/pdf-excel", tags=["PdfExcelCompare"])
 
@@ -142,8 +143,11 @@ async def export_report(
     output.seek(0)
 
     filename = f"PDF_Excel_Report_{compare_type}.xlsx"
+    encoded_filename = quote(filename)
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
     )

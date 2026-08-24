@@ -74,13 +74,13 @@ export default function PdfExcelCompareTab() {
       await exportReportExcel(pdfFiles, excelFile, compareType);
       setSuccessMessage('Đã tải xuống báo cáo Excel thành công.');
     } catch (err) {
-      const msg = err.response?.data?.detail || 'Có lỗi khi xuất báo cáo Excel.';
+      // Bây giờ err.message sẽ chứa đúng câu báo lỗi nguyên bản
+      const msg = err.message || err.response?.data?.detail || 'Có lỗi khi xuất báo cáo Excel.';
       setErrorMessage(msg);
     } finally {
       setExporting(false);
     }
   };
-
   return (
     <div>
       <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
