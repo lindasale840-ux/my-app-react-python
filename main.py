@@ -13,6 +13,7 @@ from routers.excel_multi_lookup_router import router as excel_multi_lookup_route
 from routers.file_renamer_router import router as file_renamer_router
 from routers.excel_to_pdf_router import router as excel_to_pdf_router
 from routers.change_name_pdf_from_excel_router import router as rename_pdf_excel_router
+from routers.pdf_tools_router import router as pdf_tools_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
@@ -48,3 +49,4 @@ app.include_router(excel_multi_lookup_router)
 app.include_router(file_renamer_router)
 app.include_router(excel_to_pdf_router)
 app.include_router(rename_pdf_excel_router)
+app.include_router(pdf_tools_router)
