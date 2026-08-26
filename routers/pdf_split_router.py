@@ -158,6 +158,15 @@ def extract_info_smart_anchors(page, naming_type: str) -> Optional[str]:
     gcn_fallback = extract_gcn_with_flexible_regex(full_text)
     return f"GCN_{gcn_fallback}" if gcn_fallback else None
 
+def append_page_count_to_filename(base_name: str, page_count: int, include_page_count: bool) -> str:
+    """
+    Nối số trang vào cuối tên file nếu include_page_count = True.
+    Ví dụ: 'MA_QL_01' -> 'MA_QL_01_3Trang'
+    """
+    if include_page_count and page_count > 0:
+        return f"{base_name}_{page_count}Trang"
+    return base_name
+
 
 # ==============================================================================
 # API ENDPOINTS
@@ -167,7 +176,8 @@ def extract_info_smart_anchors(page, naming_type: str) -> Optional[str]:
 async def split_pdf_smart(
     pdf_file: UploadFile = File(...),
     keyword: str = Form("Giấy chứng nhận, Certificate, 证书"),
-    naming_type: str = Form("ma_ql")
+    naming_type: str = Form("ma_ql"),
+    include_page_count: bool = Form(False)  # <-- THÊM THAM SỐ NÀY
 ):
     keyword_list = parse_keywords(keyword)
     if not keyword_list:
@@ -199,6 +209,7 @@ async def split_pdf_smart(
                 new_doc = fitz.open()
                 new_doc.insert_pdf(doc, from_page=start, to_page=end - 1)
 
+                page_count = len(new_doc)  # <-- ĐẾM SỐ TRANG CỦA FILE TÁCH
                 first_page = new_doc[0]
                 extracted_name = extract_info_smart_anchors(first_page, naming_type)
 
@@ -207,6 +218,9 @@ async def split_pdf_smart(
                 else:
                     filename_base = re.sub(r'\s+', ' ', extracted_name).strip()
                     filename_base = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', filename_base)
+
+                # <-- NỐI HẬU TỐ SỐ TRANG NẾU CÓ CHỌN
+                filename_base = append_page_count_to_filename(filename_base, page_count, include_page_count)
 
                 if filename_base in used_names:
                     used_names[filename_base] += 1
@@ -231,13 +245,13 @@ async def split_pdf_smart(
             raise e
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.post("/split-excel")
 async def split_pdf_excel(
     pdf_file: UploadFile = File(...),
     excel_file: UploadFile = File(...),
     keyword: str = Form("Giấy chứng nhận, Certificate, Certificate of Calibration, 证书"),
-    naming_type: str = Form("ten_tb")
+    naming_type: str = Form("ten_tb"),
+    include_page_count: bool = Form(False)  # <-- THÊM THAM SỐ NÀY
 ):
     keywords = parse_keywords(keyword)
     if not keywords:
@@ -262,9 +276,6 @@ async def split_pdf_excel(
         df = pd.read_excel(excel_path, header=None, dtype=str)
         df[25] = df[25].fillna("").str.strip().str.upper()
 
-        # ==============================================================================
-        # ĐÁNH DẤU ĐIỂM CẮT THEO SỐ GCN MỚI
-        # ==============================================================================
         cut_points = []
         last_gcn_found = None
 
@@ -289,12 +300,12 @@ async def split_pdf_excel(
                 new_doc = fitz.open()
                 new_doc.insert_pdf(doc, from_page=start, to_page=end - 1)
 
+                page_count = len(new_doc)  # <-- ĐẾM SỐ TRANG CỦA FILE TÁCH
                 first_page_text = new_doc[0].get_text("text")
                 gcn_key = extract_gcn_with_flexible_regex(new_doc[0])
 
                 if gcn_key:
                     final_filename = f"GCN_{gcn_key}_Khong_Co_Trong_Excel"
-                    # Chuẩn hóa cột Excel: Xóa khoảng trắng, đưa về chữ hoa và đồng nhất dấu _ thành -
                     excel_column_clean = (
                         df[25].astype(str)
                         .str.strip()
@@ -304,9 +315,7 @@ async def split_pdf_excel(
                     )
 
                     clean_gcn_key = gcn_key.replace('_', '-')
-
                     matched_rows = df[excel_column_clean == clean_gcn_key]
-                
 
                     if matched_rows.empty:
                         matched_rows = df[excel_column_clean.str.contains(gcn_key, na=False, regex=False)]
@@ -340,6 +349,10 @@ async def split_pdf_excel(
                     final_filename = f"Khong_Do_Duoc_GCN_{i+1}"
 
                 final_filename = re.sub(r'\s+', ' ', final_filename).strip()
+
+                # <-- NỐI HẬU TỐ SỐ TRANG NẾU CÓ CHỌN
+                final_filename = append_page_count_to_filename(final_filename, page_count, include_page_count)
+
                 if final_filename in used_names:
                     used_names[final_filename] += 1
                     filename = f"{final_filename} ({used_names[final_filename]}).pdf"

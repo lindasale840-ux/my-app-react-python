@@ -7,6 +7,7 @@ export default function PdfSplitTab() {
   const [excelFile, setExcelFile] = useState(null);
   const [keyword, setKeyword] = useState('Giấy chứng nhận');
   const [namingType, setNamingType] = useState('ma_ql');
+  const [includePageCount, setIncludePageCount] = useState(false); // <-- STATE MỚI
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
@@ -39,9 +40,9 @@ export default function PdfSplitTab() {
     try {
       let blobData;
       if (mode === 'smart') {
-        blobData = await pdfSplitService.splitSmart(pdfFile, keyword, namingType);
+        blobData = await pdfSplitService.splitSmart(pdfFile, keyword, namingType, includePageCount);
       } else {
-        blobData = await pdfSplitService.splitExcel(pdfFile, excelFile, keyword, namingType);
+        blobData = await pdfSplitService.splitExcel(pdfFile, excelFile, keyword, namingType, includePageCount);
       }
 
       const url = window.URL.createObjectURL(new Blob([blobData]));
@@ -144,7 +145,7 @@ export default function PdfSplitTab() {
           />
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '15px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
             Quy tắc đặt tên file đầu ra:
           </label>
@@ -167,6 +168,22 @@ export default function PdfSplitTab() {
               </>
             )}
           </select>
+        </div>
+
+        {/* ============================================================================== */}
+        {/* CHECKBOX BỔ SUNG SỐ TRANG VÀO TÊN FILE */}
+        {/* ============================================================================== */}
+        <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="checkbox"
+            id="includePageCount"
+            checked={includePageCount}
+            onChange={(e) => setIncludePageCount(e.target.checked)}
+            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+          />
+          <label htmlFor="includePageCount" style={{ cursor: 'pointer', userSelect: 'none', fontSize: '14px' }}>
+            Thêm số trang vào cuối tên file (Ví dụ: <strong>TenFile_3Trang.pdf</strong>)
+          </label>
         </div>
 
         {message && (
