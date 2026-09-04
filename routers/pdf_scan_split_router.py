@@ -1,4 +1,3 @@
-# backend/routers/pdf_scan_split_router.py
 import os
 import re
 import time
@@ -6,7 +5,7 @@ import zipfile
 import io
 import warnings
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor,ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -37,30 +36,20 @@ def clean_filename(text: str) -> str:
 def preprocess_image_for_ocr(page, dpi=300, top_percent=0.6):
     rect = page.rect
     crop_rect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y0 + rect.height * top_percent)
+    
+    # Render trực tiếp ở DPI 300 để lấy độ phân giải cao chuẩn
     mat = fitz.Matrix(dpi / 72, dpi / 72)
-
     pix = page.get_pixmap(matrix=mat, clip=crop_rect)
-    img_data = pix.tobytes("png")
-
-    pil_img = Image.open(io.BytesIO(img_data))
-
-    if pil_img.mode != 'L':
-        pil_img = pil_img.convert('L')
-
+    
+    # Chuyển trực tiếp sang PIL Grayscale
+    pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert('L')
+    
+    # Tăng nhẹ độ tương phản (không làm vỡ/đứt nét chữ)
     enhancer = ImageEnhance.Contrast(pil_img)
-    pil_img = enhancer.enhance(2.5)
-
-    enhancer = ImageEnhance.Sharpness(pil_img)
-    pil_img = enhancer.enhance(2.5)
-
-    width, height = pil_img.size
-    pil_img = pil_img.resize((width * 2, height * 2), Image.Resampling.LANCZOS)
-
-    img_array = np.array(pil_img)
-    _, img_array = cv2.threshold(img_array, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    return img_array
-
+    pil_img = enhancer.enhance(1.5)
+    
+    # Trả về mảng numpy dạng ảnh xám sạch (Không dùng cv2.threshold)
+    return np.array(pil_img)
 
 def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
     if not text or not excel_gcn_list:
@@ -153,17 +142,34 @@ def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
     return None
 
 
-def process_page_ocr(page_num, page, excel_gcn_list, dpi=300, top_percent=0.6, lang='vie+eng'):
+def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: list, dpi=300, top_percent=0.6, lang='vie+eng'):
+    """Worker OCR cho Multiprocessing"""
     try:
+        # ---------------------------------------------------------------------
+        # BỔ SUNG BẮT BỘC: Cài đặt đường dẫn Tesseract cho từng Process con
+        # (Thay đường dẫn bên dưới nếu bạn cài Tesseract ở thư mục khác)
+        # ---------------------------------------------------------------------
+        if os.name == 'nt':  # Nếu là Windows
+            tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            if os.path.exists(tesseract_path):
+                pytesseract.pytesseract.tesseract_cmd = tesseract_path
+
         start_time = time.time()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[page_num]
+
         img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
 
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-. '
+        custom_config = r'--oem 3 --psm 6'
         page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
         page_text = re.sub(r'\n+', ' ', page_text).strip()
 
         detected_gcn = extract_gcn_intelligent(page_text, excel_gcn_list)
         elapsed = time.time() - start_time
+        
+        doc.close()
+        
+        print(f"-> Trang {page_num + 1}: Mã GCN = {detected_gcn}")
         
         return {
             'page_num': page_num,
@@ -172,8 +178,26 @@ def process_page_ocr(page_num, page, excel_gcn_list, dpi=300, top_percent=0.6, l
             'time': elapsed
         }
     except Exception as e:
+        print(f"Lỗi tại trang {page_num + 1}: {e}")
         return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
-    
+
+
+def process_page_ocr_standalone(pdf_bytes: bytes, page_num: int, dpi=300, top_percent=0.6, lang='vie+eng'):
+    """Worker OCR phụ - Trích xuất mã thô không cần Excel"""
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[page_num]
+
+        img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
+        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. '
+        page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
+        page_text = re.sub(r'\n+', ' ', page_text).strip()
+
+        detected_gcn = extract_gcn_raw_standalone(page_text)
+        doc.close()
+        return {'page_num': page_num, 'gcn': detected_gcn, 'text': page_text}
+    except Exception:
+        return {'page_num': page_num, 'gcn': None, 'text': ''}    
 # ---------------------------------------------------------------------------
 # HELPER MỚI (Dành riêng cho Tab 2 - Trích xuất KHÁCH QUAN mọi Mã GCN)
 # ---------------------------------------------------------------------------
@@ -183,16 +207,13 @@ def extract_gcn_raw_standalone(text: str) -> Optional[str]:
         return None
 
     text = text.upper()
-    # Chỉ bắt các chuỗi bắt đầu bằng C hoặc T, có định dạng chuẩn kiểu C202605-01-0162 hoặc C202605-00162
     candidates = re.findall(r'\b[CT][A-Z0-9]{5,8}[-\/][A-Z0-9]{1,3}[-\/][A-Z0-9]{3,6}\b', text)
     
     if not candidates:
-        # Thử mẫu phụ có 1 dấu gạch ngang (VD: C202605-00162)
         candidates = re.findall(r'\b[CT][A-Z0-9]{5,8}[-\/][A-Z0-9]{3,8}\b', text)
 
     if candidates:
         code = re.sub(r'\s+', '', candidates[0])
-        # Tự động sửa lỗi OCR hay đọc nhầm số 0 thành chữ O ở phần đuôi mã
         prefix = code[0]
         rest = code[1:]
         rest_fixed = re.sub(r'(?<=[-\/0-9])O(?=[0-9])|(?<=[0-9])O(?=[-\/0-9])', '0', rest)
@@ -200,15 +221,19 @@ def extract_gcn_raw_standalone(text: str) -> Optional[str]:
 
     return None
 
-def process_page_ocr_standalone(page_num, page, dpi=300, top_percent=0.6, lang='vie+eng'):
-    """Hàm OCR cho Tab 2: Bắt tất cả mã GCN có trên trang"""
+def process_page_ocr_standalone_worker(pdf_bytes: bytes, page_num: int, dpi=300, top_percent=0.6, lang='vie+eng'):
+    """Hàm OCR cho Tab 2: Hỗ trợ Multiprocessing"""
     try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[page_num]
+
         img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
         custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. '
         page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
         page_text = re.sub(r'\n+', ' ', page_text).strip()
 
         detected_gcn = extract_gcn_raw_standalone(page_text)
+        doc.close()
         return {'page_num': page_num, 'gcn': detected_gcn}
     except Exception:
         return {'page_num': page_num, 'gcn': None}
@@ -248,23 +273,34 @@ async def process_pdf_split(
             excel_gcn_list = [x for x in excel_gcn_list if x and len(str(x)) > 2]
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Lỗi cấu trúc File Excel: {str(e)}")
+        
+        excel_gcn_list = list(excel_gcn_list) if excel_gcn_list else []
+        # 3. Multiprocessing OCR Page Processing
+        
+        raw_results = []
+        cpu_cores = os.cpu_count() or 4
+        max_workers = max(1, cpu_cores - 2) if cpu_cores > 2 else 1
 
-        # 3. Multithread OCR Page Processing
-        page_results = []
-        max_workers = 4
-        dpi = 300
-        top_percent = 0.6
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Tạo dictionary để ánh xạ future -> page_num
             futures = {
-                executor.submit(process_page_ocr, i, doc[i], excel_gcn_list, dpi, top_percent): i
+                executor.submit(process_page_ocr_worker, pdf_bytes, i, excel_gcn_list, 300, 0.6): i
                 for i in range(total_pages)
             }
+            
             for future in as_completed(futures):
-                page_results.append(future.result())
+                try:
+                    res = future.result()
+                    if res:
+                        raw_results.append(res)
+                except Exception as e:
+                    print(f"Lỗi OCR trang: {e}")
 
-        page_results.sort(key=lambda x: x['page_num'])
-
+        # BẮT BỘC: Sắp xếp lại danh sách kết quả tăng dần theo thứ tự trang (0 -> total_pages - 1)
+        page_results = sorted(raw_results, key=lambda x: x['page_num'])
+        print("DANH SÁCH TRANG SAU KHI SẮP XẾP:")
+        for item in page_results:
+            print(f"  Trang {item['page_num'] + 1} -> GCN: {item['gcn']}")
         # 4. Group pages intelligently
         page_groups = []
         current_group = None
@@ -444,36 +480,24 @@ async def process_pdf_split(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi hệ thống: {str(e)}")
-    
-    
+
+
 def normalize_fuzzy_key(s: str) -> str:
-    """
-    Quy đổi tất cả các ký tự hay bị OCR đọc nhầm về một 'Dạng đại diện duy nhất'.
-    Giúp 0/O, 1/I/7/L, C/Q, T/+ hòa làm 1 khi so sánh.
-    """
     if not s:
         return ""
-    # 1. Xóa toàn bộ dấu phân cách
     clean = re.sub(r'[-\s\.\/]', '', str(s).upper())
     if not clean:
         return ""
 
-    # 2. Bảng quy đổi lỗi OCR kinh điển
-    # Giữ nguyên ký tự đầu (C/T), chỉ sửa phần thân mã
     prefix = clean[0]
     body = clean[1:]
     
-    # Ép tất cả O -> 0, I/L/7 -> 1, Q/D -> C (nếu có)
     body = body.replace('O', '0').replace('I', '1').replace('L', '1').replace('7', '1')
     
     return f"{prefix}{body}"
 
 
 def generate_ocr_variants(candidate: str) -> list:
-    """
-    Tạo ra danh sách tất cả các biến thể có thể xảy ra từ kết quả quét OCR
-    (Tham khảo theo đúng thuật toán sinh biến thể của bạn)
-    """
     if not candidate:
         return []
         
@@ -486,12 +510,10 @@ def generate_ocr_variants(candidate: str) -> list:
         phan_he = norm[7]
         so_seri = norm[8:]
         
-        # Biến thể cho Phân hệ (0 <-> O)
         phan_he_opts = [phan_he]
         if phan_he == '0': phan_he_opts.append('O')
         elif phan_he == 'O': phan_he_opts.append('0')
         
-        # Biến thể cho Số Seri (O -> 0 và 0 -> O)
         so_seri_opts = [so_seri]
         if 'O' in so_seri: so_seri_opts.append(so_seri.replace('O', '0'))
         if '0' in so_seri: so_seri_opts.append(so_seri.replace('0', 'O'))
