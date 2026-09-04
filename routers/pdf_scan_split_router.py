@@ -277,26 +277,43 @@ async def process_pdf_split(
         excel_gcn_list = list(excel_gcn_list) if excel_gcn_list else []
         # 3. Multiprocessing OCR Page Processing
         
+        # 3. Multiprocessing OCR Page Processing (Tối ưu chống đơ Server)
         raw_results = []
         cpu_cores = os.cpu_count() or 4
-        max_workers = max(1, cpu_cores - 2) if cpu_cores > 2 else 1
+        
+        # Chỉ dùng tối đa 50-70% số core hiện có, để dành core cho FastAPI nhận request tiếp theo
+        max_workers = max(1, cpu_cores // 2)
 
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Tạo dictionary để ánh xạ future -> page_num
-            futures = {
-                executor.submit(process_page_ocr_worker, pdf_bytes, i, excel_gcn_list, 300, 0.6): i
+        # Sử dụng asyncio Event Loop để không block Server
+        import asyncio
+        loop = asyncio.get_running_loop()
+
+        executor = ProcessPoolExecutor(max_workers=max_workers)
+        try:
+            # Tạo danh sách các task OCR
+            futures = [
+                loop.run_in_executor(
+                    executor, 
+                    process_page_ocr_worker, 
+                    pdf_bytes, i, excel_gcn_list, 300, 0.6
+                )
                 for i in range(total_pages)
-            }
+            ]
             
-            for future in as_completed(futures):
-                try:
-                    res = future.result()
-                    if res:
-                        raw_results.append(res)
-                except Exception as e:
-                    print(f"Lỗi OCR trang: {e}")
+            # Đợi tất cả các trang hoàn thành bất đồng bộ
+            results = await asyncio.gather(*futures, return_exceptions=True)
+            
+            for res in results:
+                if isinstance(res, dict) and res.get('gcn') is not None:
+                    raw_results.append(res)
+                elif isinstance(res, Exception):
+                    print(f"Lỗi tiến trình OCR: {res}")
+                    
+        finally:
+            # BẮT BỘC: Giải phóng hoàn toàn các tiến trình con sau khi chạy xong
+            executor.shutdown(wait=True, cancel_futures=True)
 
-        # BẮT BỘC: Sắp xếp lại danh sách kết quả tăng dần theo thứ tự trang (0 -> total_pages - 1)
+        # BẮT BỘC: Sắp xếp lại danh sách kết quả tăng dần theo thứ tự trang
         page_results = sorted(raw_results, key=lambda x: x['page_num'])
         print("DANH SÁCH TRANG SAU KHI SẮP XẾP:")
         for item in page_results:
