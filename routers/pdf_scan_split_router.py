@@ -144,10 +144,13 @@ def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
 
 def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: list, dpi=300, top_percent=0.6, lang='vie+eng'):
     """Worker OCR cho Multiprocessing"""
+    doc = None
+    page = None
+    img_array = None
+    
     try:
         # ---------------------------------------------------------------------
-        # BỔ SUNG BẮT BỘC: Cài đặt đường dẫn Tesseract cho từng Process con
-        # (Thay đường dẫn bên dưới nếu bạn cài Tesseract ở thư mục khác)
+        # Cài đặt đường dẫn Tesseract cho từng Process con
         # ---------------------------------------------------------------------
         if os.name == 'nt':  # Nếu là Windows
             tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -167,8 +170,6 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
         detected_gcn = extract_gcn_intelligent(page_text, excel_gcn_list)
         elapsed = time.time() - start_time
         
-        doc.close()
-        
         print(f"-> Trang {page_num + 1}: Mã GCN = {detected_gcn}")
         
         return {
@@ -180,6 +181,22 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
     except Exception as e:
         print(f"Lỗi tại trang {page_num + 1}: {e}")
         return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
+        
+    finally:
+        # ---------------------------------------------------------------------
+        # GIẢI PHÓNG BỘ NHỚ TRIỆT ĐỂ TRONG TIẾN TRÌNH CON
+        # ---------------------------------------------------------------------
+        if page is not None:
+            del page
+        if doc is not None:
+            doc.close()
+            del doc
+        if img_array is not None:
+            del img_array
+        
+        # Gọi dọn dẹp bộ nhớ RAM của tiến trình con ngay lập tức
+        import gc
+        gc.collect()
 
 
 def process_page_ocr_standalone(pdf_bytes: bytes, page_num: int, dpi=300, top_percent=0.6, lang='vie+eng'):
@@ -303,22 +320,22 @@ async def process_pdf_split(
             # Đợi tất cả các trang hoàn thành bất đồng bộ
             results = await asyncio.gather(*futures, return_exceptions=True)
             
+            # 3. Thu thập kết quả (Giữ nguyên toàn bộ các trang)
             for res in results:
-                if isinstance(res, dict) and res.get('gcn') is not None:
+                if isinstance(res, dict):
                     raw_results.append(res)
                 elif isinstance(res, Exception):
                     print(f"Lỗi tiến trình OCR: {res}")
                     
         finally:
-            # BẮT BỘC: Giải phóng hoàn toàn các tiến trình con sau khi chạy xong
             executor.shutdown(wait=True, cancel_futures=True)
 
         # BẮT BỘC: Sắp xếp lại danh sách kết quả tăng dần theo thứ tự trang
+       # Sắp xếp lại danh sách kết quả tăng dần theo đúng thứ tự trang
         page_results = sorted(raw_results, key=lambda x: x['page_num'])
-        print("DANH SÁCH TRANG SAU KHI SẮP XẾP:")
-        for item in page_results:
-            print(f"  Trang {item['page_num'] + 1} -> GCN: {item['gcn']}")
-        # 4. Group pages intelligently
+        del raw_results
+
+        # 4. Group pages intelligently (KHÔI PHỤC CHUẨN LOGIC 2 TRANG TRẮNG LIÊN TIẾP)
         page_groups = []
         current_group = None
         consecutive_none_count = 0
@@ -328,20 +345,26 @@ async def process_pdf_split(
             page_num = result['page_num']
 
             if gcn:
+                # Tìm thấy mã -> Reset lại bộ đếm trang lỗi/trắng
                 consecutive_none_count = 0
                 if current_group is None:
                     current_group = {'gcn': gcn, 'pages': [page_num], 'requires_check': False}
                 elif current_group['gcn'] == gcn:
                     current_group['pages'].append(page_num)
                 else:
+                    # Gặp mã GCN MỚI -> Đóng nhóm cũ, tạo nhóm mới
                     page_groups.append(current_group)
                     current_group = {'gcn': gcn, 'pages': [page_num], 'requires_check': False}
             else:
+                # Trang KHÔNG tìm thấy mã GCN (trang mờ, trang mặt sau, trang trắng)
                 if current_group is None:
                     current_group = {'gcn': f"Khong_Xac_Dinh_{page_num+1}", 'pages': [page_num], 'requires_check': False}
                 else:
+                    # Gộp trang vào nhóm GCN gần nhất
                     consecutive_none_count += 1
                     current_group['pages'].append(page_num)
+                    
+                    # CHỈ gắn hậu tố CHECK_OCR khi có từ 2 TRANG LỖI/TRẮNG LIÊN TIẾP trở lên
                     if consecutive_none_count >= 2:
                         current_group['requires_check'] = True
 
