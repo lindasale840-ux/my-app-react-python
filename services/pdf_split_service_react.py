@@ -18,7 +18,11 @@ def get_pdf_thumbnails_logic(file_bytes):
     
     for page_num in range(len(doc)):
         page = doc.load_page(page_num)
-        pix = page.get_pixmap(matrix=fitz.Matrix(0.25, 0.25)) # Scale nhỏ để load siêu nhanh
+        
+        # 🟢 ĐÃ SỬA: Tăng Matrix từ (0.25, 0.25) lên (1.5, 1.5)
+        # Giúp tăng độ phân giải lên gấp 6 lần, kính lúp soi chữ cực kỳ nét không bị vỡ!
+        pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5)) 
+        
         img_bytes = pix.tobytes("png")
         base64_img = base64.b64encode(img_bytes).decode("utf-8")
         thumbnails.append(f"data:image/png;base64,{base64_img}")

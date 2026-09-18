@@ -14,6 +14,9 @@ export default function PdfSplitByCutNodes() {
   // STATE MỚI: Quản lý tên file tương ứng cho từng dải trang { "1-3": "A", "4-8": "B" }
   const [rangeNames, setRangeNames] = useState({});
 
+  // STATE BỔ SUNG: Quản lý ảnh preview đang chọn để phóng to (Modal Zoom)
+  const [previewImg, setPreviewImg] = useState(null);
+
   // Chọn file PDF -> Tải ảnh Thumbnails
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
@@ -163,7 +166,19 @@ export default function PdfSplitByCutNodes() {
                     background: isCutPoint ? '#fff0f0' : '#fff'
                   }}
                 >
-                  <img src={imgSrc} alt={`Trang ${pageNum}`} style={{ width: '100%', height: 'auto', border: '1px solid #eee' }} />
+                  {/* Bổ sung onClick để mở Zoom và cursor zoom-in */}
+                  <img 
+                    src={imgSrc} 
+                    alt={`Trang ${pageNum}`} 
+                    onClick={() => setPreviewImg(imgSrc)}
+                    title="Click vào ảnh để phóng to xem chi tiết"
+                    style={{ 
+                      width: '100%', 
+                      height: 'auto', 
+                      border: '1px solid #eee', 
+                      cursor: 'zoom-in' 
+                    }} 
+                  />
                   <div style={{ marginTop: '5px', fontWeight: 'bold' }}>Trang {pageNum}</div>
                   
                   <button 
@@ -242,6 +257,43 @@ export default function PdfSplitByCutNodes() {
           >
             {processing ? "⏳ Đang tách file..." : "🚀 Tiến hành Tách PDF & Tải về"}
           </button>
+        </div>
+      )}
+
+      {/* MODAL OVERLAY HIỂN THỊ ẢNH PHÓNG TO */}
+      {previewImg && (
+        <div 
+          onClick={() => setPreviewImg(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+            cursor: 'zoom-out'
+          }}
+        >
+          <div style={{ position: 'relative', textAlign: 'center' }}>
+            <img 
+              src={previewImg} 
+              alt="Zoom Preview" 
+              style={{ 
+                maxHeight: '85vh', 
+                maxWidth: '85vw', 
+                borderRadius: '8px', 
+                boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+                border: '2px solid #fff'
+              }} 
+            />
+            <p style={{ color: '#fff', marginTop: '10px', fontSize: '14px' }}>
+              💡 Click vào bất kỳ vị trí nào trên màn hình để đóng
+            </p>
+          </div>
         </div>
       )}
     </div>
