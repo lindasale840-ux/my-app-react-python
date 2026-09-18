@@ -53,11 +53,12 @@ async def api_get_pdf_thumbnails(file: Annotated[UploadFile, File(...)]):
 
 # 3. API Cắt PDF theo danh sách điểm cắt
 @router.post("/split-ranges")
-async def api_split_pdf_ranges(
+def api_split_pdf_ranges(
     file: Annotated[UploadFile, File(...)],
     ranges_text: Annotated[str, Form(...)]
 ):
-    file_bytes = await file.read()
+    # Đọc file_bytes đồng bộ để tránh giữ lock async khi xử lý PDF dung lượng lớn
+    file_bytes = file.file.read()
     zip_path, message = split_pdf_by_ranges_logic(file_bytes, ranges_text)
     
     if not zip_path or not os.path.exists(zip_path):

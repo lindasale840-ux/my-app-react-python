@@ -11,6 +11,9 @@ export default function PdfSplitByCutNodes() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
 
+  // STATE MỚI: Quản lý tên file tương ứng cho từng dải trang { "1-3": "A", "4-8": "B" }
+  const [rangeNames, setRangeNames] = useState({});
+
   // Chọn file PDF -> Tải ảnh Thumbnails
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
@@ -18,6 +21,7 @@ export default function PdfSplitByCutNodes() {
 
     setFile(selectedFile);
     setCutPages([]);
+    setRangeNames({});
     setCurrentPage(1);
     setLoading(true);
 
@@ -40,9 +44,9 @@ export default function PdfSplitByCutNodes() {
     }
   };
 
-  // Tự động tính chuỗi khoảng trang cắt
-  const generatedRangesText = useMemo(() => {
-    if (cutPages.length === 0 || thumbnails.length === 0) return "";
+  // Tự động tính danh sách các khoảng trang cắt dạng mảng [ "1-3", "4-8", "9-12" ]
+  const computedRangesList = useMemo(() => {
+    if (cutPages.length === 0 || thumbnails.length === 0) return [];
     
     const ranges = [];
     let startPage = 1;
@@ -57,12 +61,25 @@ export default function PdfSplitByCutNodes() {
       ranges.push(`${startPage}-${thumbnails.length}`);
     }
 
-    return ranges.join("\n");
+    return ranges;
   }, [cutPages, thumbnails.length]);
+
+  // Cập nhật tên tùy chỉnh cho một dải trang cụ thể
+  const handleRangeNameChange = (rangeStr, newName) => {
+    setRangeNames(prev => ({
+      ...prev,
+      [rangeStr]: newName
+    }));
+  };
+
+  // Chuỗi dải trang kiểm tra điều kiện kích hoạt nút bấm Tách PDF
+  const generatedRangesText = useMemo(() => {
+    return computedRangesList.join("\n");
+  }, [computedRangesList]);
 
   // Thực hiện cắt PDF
   const handleSplitPdf = async () => {
-    if (!generatedRangesText) {
+    if (computedRangesList.length === 0) {
       alert("Vui lòng chọn ít nhất 1 điểm cắt!");
       return;
     }
@@ -70,15 +87,27 @@ export default function PdfSplitByCutNodes() {
     setProcessing(true);
 
     try {
-      const zipBlob = await splitPdfByRangesApi(file, generatedRangesText);
+      // Đóng gói mảng danh sách [{ range: "1-3", name: "A" }, ...] thành dạng chuỗi JSON
+      const payloadData = computedRangesList.map((rangeStr, idx) => ({
+        range: rangeStr,
+        name: rangeNames[rangeStr] || `File_${idx + 1}`
+      }));
 
-      const url = window.URL.createObjectURL(new Blob([zipBlob]));
+      const rangesTextJson = JSON.stringify(payloadData);
+
+      // Gọi API giữ nguyên tham số cũ
+      const zipBlob = await splitPdfByRangesApi(file, rangesTextJson);
+
+      const url = window.URL.createObjectURL(new Blob([zipBlob], { type: 'application/zip' }));
       const link = document.createElement("a");
       link.href = url;
       link.setAttribute("download", "Split_Results.zip");
       document.body.appendChild(link);
       link.click();
+      
+      // Dọn dẹp DOM và giải phóng RAM
       link.remove();
+      window.URL.revokeObjectURL(url);
 
       alert("🚀 Tách PDF thành công và đã tải file ZIP!");
     } catch (err) {
@@ -156,12 +185,43 @@ export default function PdfSplitByCutNodes() {
             })}
           </div>
 
-          <div style={{ marginBottom: '20px', background: '#e6f7ff', padding: '12px', borderRadius: '5px' }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>📋 Khoảng trang tự sinh:</h4>
-            {generatedRangesText ? (
-              <pre style={{ background: '#fff', padding: '8px', border: '1px solid #b7eb8f', borderRadius: '4px' }}>
-                {generatedRangesText}
-              </pre>
+          {/* KHU VỰC NHẬP TÊN CHO TỪNG FILE PDF SAU Khi CẮT */}
+          <div style={{ marginBottom: '20px', background: '#e6f7ff', padding: '15px', borderRadius: '5px' }}>
+            <h4 style={{ margin: '0 0 10px 0' }}>📋 Danh sách dải trang và đặt tên file:</h4>
+            {computedRangesList.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {computedRangesList.map((rangeStr, idx) => (
+                  <div 
+                    key={rangeStr} 
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '10px', 
+                      background: '#fff', 
+                      padding: '8px 12px', 
+                      borderRadius: '4px',
+                      border: '1px solid #91d5ff' 
+                    }}
+                  >
+                    <span style={{ fontWeight: 'bold', minWidth: '120px' }}>
+                      Khoảng {idx + 1} ({rangeStr}):
+                    </span>
+                    <input
+                      type="text"
+                      placeholder={`Tên file (Mặc định: File_${idx + 1})`}
+                      value={rangeNames[rangeStr] || ''}
+                      onChange={(e) => handleRangeNameChange(rangeStr, e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px'
+                      }}
+                    />
+                    <span>.pdf</span>
+                  </div>
+                ))}
+              </div>
             ) : (
               <span style={{ color: '#fa8c16' }}>⚠️ Chưa chọn điểm cắt nào! Hãy chọn nút "✂️ Cắt tại đây" bên trên.</span>
             )}
@@ -169,7 +229,7 @@ export default function PdfSplitByCutNodes() {
 
           <button 
             onClick={handleSplitPdf} 
-            disabled={processing || !generatedRangesText}
+            disabled={processing || computedRangesList.length === 0}
             style={{ 
               padding: '10px 20px', 
               fontSize: '16px', 
@@ -177,10 +237,10 @@ export default function PdfSplitByCutNodes() {
               color: '#fff', 
               border: 'none', 
               borderRadius: '5px',
-              cursor: 'pointer'
+              cursor: processing ? 'not-allowed' : 'pointer'
             }}
           >
-            {processing ? "⏳ Đang tách file..." : "🚀 Tiến hành Tách PDF"}
+            {processing ? "⏳ Đang tách file..." : "🚀 Tiến hành Tách PDF & Tải về"}
           </button>
         </div>
       )}
