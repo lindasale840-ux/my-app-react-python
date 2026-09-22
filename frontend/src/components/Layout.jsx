@@ -38,6 +38,10 @@ const PAGES = [
     path: "/pdf-tools",
     name: "10 .Trích Xuất & Đối Chiếu PDF"
   },
+  {
+    path: '/pdf-unlock',
+    name: '11. 🔓 Mở khóa PDF'
+  }
 ];
 
 export default function Layout({ children }) {
