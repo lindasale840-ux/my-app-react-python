@@ -43,7 +43,9 @@ async def unlock_pdf_endpoint(file: UploadFile = File(...)):
         doc_src.close()
         doc_dst.close()
 
+        # 🟢 XỬ LÝ TÊN FILE UNICODE TIẾNG VIỆT
         raw_filename = f"Unlocked_{file.filename}"
+        # Mã hóa tiêu đề file theo chuẩn RFC 5987 để tránh lỗi latin-1 codec
         encoded_filename = quote(raw_filename)
 
         return StreamingResponse(
