@@ -28,11 +28,19 @@ export const pdfToolsService = {
     return response.data;
   },
 
-  // Đối chiếu PDF với Excel
-  comparePdfWithExcel: async (excelFile, columnName, pdfFiles) => {
+  // Đối chiếu PDF với Excel (Đã cập nhật chọn nhiều cột: columnNames)
+  comparePdfWithExcel: async (excelFile, columnNames, pdfFiles, infoColumn = '') => {
     const formData = new FormData();
     formData.append('excel_file', excelFile);
-    formData.append('column_name', columnName);
+    
+    columnNames.forEach((col) => {
+      formData.append('column_names', col);
+    });
+
+    if (infoColumn) {
+      formData.append('info_column', infoColumn);
+    }
+
     pdfFiles.forEach((file) => {
       formData.append('pdf_files', file);
     });

@@ -4,7 +4,8 @@ import { pdfToolsService } from '../../services/pdfToolsService';
 export const ComparePdfExcelTab = () => {
   const [excelFile, setExcelFile] = useState(null);
   const [columns, setColumns] = useState([]);
-  const [selectedColumn, setSelectedColumn] = useState('');
+  const [selectedColumns, setSelectedColumns] = useState([]); // Đã đổi sang mảng các cột được chọn
+  const [infoColumn, setInfoColumn] = useState('');
   const [pdfFiles, setPdfFiles] = useState([]);
   
   const [loadingColumns, setLoadingColumns] = useState(false);
@@ -19,21 +20,33 @@ export const ComparePdfExcelTab = () => {
 
     setExcelFile(file);
     setColumns([]);
-    setSelectedColumn('');
+    setSelectedColumns([]);
     setError('');
     setSuccess('');
     setLoadingColumns(true);
+    setInfoColumn('');
 
     try {
       const res = await pdfToolsService.getExcelColumns(file);
-      setColumns(res.columns || []);
-      if (res.columns && res.columns.length > 0) {
-        setSelectedColumn(res.columns[0]);
+      const fetchedCols = res.columns || [];
+      setColumns(fetchedCols);
+      // Mặc định tự động chọn cột đầu tiên nếu có
+      if (fetchedCols.length > 0) {
+        setSelectedColumns([fetchedCols[0]]);
       }
     } catch (err) {
       setError(err.response?.data?.detail || 'Không thể đọc file Excel.');
     } finally {
       setLoadingColumns(false);
+    }
+  };
+
+  // Xử lý khi người dùng tick/untick chọn cột đối chiếu
+  const handleColumnToggle = (colName) => {
+    if (selectedColumns.includes(colName)) {
+      setSelectedColumns(selectedColumns.filter((c) => c !== colName));
+    } else {
+      setSelectedColumns([...selectedColumns, colName]);
     }
   };
 
@@ -49,8 +62,8 @@ export const ComparePdfExcelTab = () => {
       setError('Vui lòng chọn file Excel Tổng.');
       return;
     }
-    if (!selectedColumn) {
-      setError('Vui lòng chọn cột đối chiếu.');
+    if (selectedColumns.length === 0) {
+      setError('Vui lòng chọn ít nhất một cột đối chiếu.');
       return;
     }
     if (pdfFiles.length === 0) {
@@ -63,7 +76,7 @@ export const ComparePdfExcelTab = () => {
     setSuccess('');
 
     try {
-      const blobData = await pdfToolsService.comparePdfWithExcel(excelFile, selectedColumn, pdfFiles);
+      const blobData = await pdfToolsService.comparePdfWithExcel(excelFile, selectedColumns, pdfFiles, infoColumn);
 
       const url = window.URL.createObjectURL(new Blob([blobData]));
       const link = document.createElement('a');
@@ -84,7 +97,7 @@ export const ComparePdfExcelTab = () => {
   return (
     <div>
       <div style={{ marginBottom: '15px', color: '#555', fontSize: '14px' }}>
-        So sánh danh sách mã trong 1 cột Excel Tổng với danh sách các file PDF thực tế được upload để lọc ra danh sách thiếu file PDF.
+        So sánh danh sách mã trong các cột được chọn của Excel Tổng với danh sách file PDF thực tế để lọc ra danh sách thiếu file PDF.
       </div>
 
       {/* Bước 1: Chọn Excel */}
@@ -111,33 +124,79 @@ export const ComparePdfExcelTab = () => {
         )}
       </div>
 
-      {/* Chọn cột đối chiếu */}
+      {/* Chọn các cột đối chiếu (Cho phép tick chọn nhiều cột) */}
       {columns.length > 0 && (
         <div style={{ marginBottom: '20px' }}>
           <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
-            2. Chọn Cột Chứa Mã/Tên File Cần Đối Chiếu:
+            2. Chọn Các Cột Chứa Mã Cần Đối Chiếu (Có thể chọn nhiều cột):
           </label>
-          <select
-            value={selectedColumn}
-            onChange={(e) => setSelectedColumn(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              backgroundColor: '#fff'
-            }}
-          >
-            {columns.map((col, idx) => (
-              <option key={idx} value={col}>
-                {col}
-              </option>
-            ))}
-          </select>
+          <div style={{
+            maxHeight: '180px',
+            overflowY: 'auto',
+            border: '1px solid #ccc',
+            borderRadius: '4px',
+            padding: '10px',
+            backgroundColor: '#fafafa'
+          }}>
+            {columns.map((col, idx) => {
+              const isChecked = selectedColumns.includes(col);
+              return (
+                <label
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginBottom: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleColumnToggle(col)}
+                    style={{ marginRight: '8px', cursor: 'pointer' }}
+                  />
+                  <span>{col}</span>
+                </label>
+              );
+            })}
+          </div>
+          {selectedColumns.length > 0 && (
+            <div style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
+              Đã chọn: <b>{selectedColumns.join(', ')}</b>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Bước 2: Chọn danh sách PDF */}
+      {columns.length > 0 && (
+  <div style={{ marginBottom: '20px' }}>
+    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+      2b. Chọn Cột Hiển Thị Kèm Theo (VD: Mã chứng nhận, Tên SP... - Tùy chọn):
+    </label>
+    <select
+      value={infoColumn}
+      onChange={(e) => setInfoColumn(e.target.value)}
+      style={{
+        width: '100%',
+        padding: '8px',
+        border: '1px solid #ccc',
+        borderRadius: '4px',
+        backgroundColor: '#fff'
+      }}
+    >
+      <option value="">-- Không chọn (Mặc định) --</option>
+      {columns.map((col, idx) => (
+        <option key={idx} value={col}>
+          {col}
+        </option>
+      ))}
+    </select>
+  </div>
+)}
+
+      {/* Bước 3: Chọn danh sách PDF */}
       <div style={{ marginBottom: '20px' }}>
         <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
           3. Chọn Các File PDF Thực Tế Tải Lên:
@@ -190,16 +249,16 @@ export const ComparePdfExcelTab = () => {
 
       <button
         onClick={handleCompare}
-        disabled={loadingCompare || !excelFile || pdfFiles.length === 0}
+        disabled={loadingCompare || !excelFile || pdfFiles.length === 0 || selectedColumns.length === 0}
         style={{
-          backgroundColor: (loadingCompare || !excelFile || pdfFiles.length === 0) ? '#cccccc' : '#007bff',
+          backgroundColor: (loadingCompare || !excelFile || pdfFiles.length === 0 || selectedColumns.length === 0) ? '#cccccc' : '#007bff',
           color: '#ffffff',
           border: 'none',
           padding: '10px 20px',
           fontSize: '15px',
           fontWeight: 'bold',
           borderRadius: '4px',
-          cursor: (loadingCompare || !excelFile || pdfFiles.length === 0) ? 'not-allowed' : 'pointer'
+          cursor: (loadingCompare || !excelFile || pdfFiles.length === 0 || selectedColumns.length === 0) ? 'not-allowed' : 'pointer'
         }}
       >
         {loadingCompare ? 'Đang đối chiếu dữ liệu...' : 'Thực Hiện Đối Chiếu & Xuất Báo Cáo'}

@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 import traceback
-from typing import List
+from typing import List, Optional  # Thêm Optional
 import pandas as pd
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
@@ -107,93 +107,162 @@ async def get_excel_columns(excel_file: UploadFile = File(...)):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+from typing import List, Optional  # Thêm Optional
+
 @router.post("/compare-with-excel")
 async def compare_pdf_with_excel(
     background_tasks: BackgroundTasks,
     excel_file: UploadFile = File(...),
-    column_name: str = Form(...),
+    column_names: List[str] = Form(...),
+    info_column: Optional[str] = Form(None),  # <--- Bổ sung tham số tùy chọn này
     pdf_files: List[UploadFile] = File(...)
 ):
     if not excel_file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="File Excel không hợp lệ.")
     if not pdf_files:
         raise HTTPException(status_code=400, detail="Vui lòng tải lên các file PDF để đối chiếu.")
+    if not column_names:
+        raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất một cột để đối chiếu.")
 
     temp_dir = tempfile.mkdtemp()
     excel_path = os.path.join(temp_dir, excel_file.filename)
 
     try:
-        # Lưu file Excel
         content = await excel_file.read()
         with open(excel_path, "wb") as f:
             f.write(content)
 
         df_excel = pd.read_excel(excel_path)
 
-        if column_name not in df_excel.columns:
-            raise HTTPException(status_code=400, detail=f"Cột '{column_name}' không tồn tại trong file Excel.")
+        # Kiểm tra cột đối chiếu
+        missing_cols = [col for col in column_names if col not in df_excel.columns]
+        if missing_cols:
+            raise HTTPException(status_code=400, detail=f"Các cột sau không tồn tại trong Excel: {', '.join(missing_cols)}")
+        
+        # Kiểm tra cột thông tin bổ sung (nếu có chọn)
+        if info_column and info_column not in df_excel.columns:
+            raise HTTPException(status_code=400, detail=f"Cột thông tin bổ sung '{info_column}' không tồn tại trong Excel.")
 
-        # Lấy danh sách mã từ Excel và làm sạch
-        excel_codes_raw = df_excel[column_name].tolist()
-        excel_codes_cleaned = [clean_text(val) for val in excel_codes_raw]
-        excel_codes_valid = [c for c in excel_codes_cleaned if c != ""]
-
-        # Map chuẩn hóa (chữ thường, bỏ space thừa) -> Mã gốc Excel
-        excel_map = {c.lower(): c for c in excel_codes_valid}
-
-        # Lấy danh sách file PDF thực tế
-        pdf_map = {}  # key_normalized -> pdf_filename
+        pdf_map = {}
         for f in pdf_files:
             if f.filename.lower().endswith(".pdf"):
                 base_name = os.path.splitext(f.filename)[0].strip()
                 if base_name:
                     pdf_map[base_name.lower()] = f.filename
 
-        # 1. Mã trong Excel nhưng KHÔNG CÓ file PDF (Thiếu PDF)
-        missing_pdf_list = []
-        for norm_code, original_code in excel_map.items():
-            if norm_code not in pdf_map:
-                missing_pdf_list.append({
-                    "Mã Excel": original_code,
-                    "Trạng thái": "Thiếu File PDF",
-                    "Ghi chú": "Có trong Excel nhưng chưa có file PDF tải lên"
-                })
+        excel_map = {}
+        row_status_tracker = []
 
-        # 2. File PDF tải lên nhưng KHÔNG CÓ trong Excel (Thừa PDF)
+        for idx, row in df_excel.iterrows():
+            row_codes = {}
+            for col in column_names:
+                val = row[col]
+                cleaned_val = clean_text(val) if 'clean_text' in globals() else (str(val).strip() if pd.notna(val) else "")
+                if cleaned_val:
+                    norm_key = cleaned_val.lower()
+                    row_codes[col] = {
+                        "original": cleaned_val,
+                        "norm": norm_key
+                    }
+                    if norm_key not in excel_map:
+                        excel_map[norm_key] = cleaned_val
+
+            # Lấy thông tin bổ sung (ví dụ: Mã chứng nhận) từ cột được chọn
+            extra_info_val = ""
+            if info_column:
+                raw_info = row[info_column]
+                extra_info_val = str(raw_info).strip() if pd.notna(raw_info) else "(Trống)"
+
+            row_status_tracker.append({
+                "row_index": idx,
+                "codes": row_codes,
+                "info_val": extra_info_val
+            })
+
+        # 1. Danh sách Dòng KHÔNG CÓ file PDF (Thiếu PDF)
+        missing_pdf_list = []
+        for item in row_status_tracker:
+            codes_in_row = item["codes"]
+            if not codes_in_row:
+                continue
+
+            has_pdf = any(info["norm"] in pdf_map for info in codes_in_row.values())
+
+            if not has_pdf:
+                row_info = {}
+                # Hiển thị cột thông tin bổ sung lên đầu nếu có
+                if info_column:
+                    row_info[f"Thông tin ({info_column})"] = item["info_val"]
+
+                for col_name in column_names:
+                    row_info[f"Mã ({col_name})"] = codes_in_row.get(col_name, {}).get("original", "(Trống)")
+                
+                row_info.update({
+                    "Trạng thái": "Thiếu File PDF",
+                    "Ghi chú": "Không tìm thấy file PDF trùng với bất kỳ mã nào ở dòng này"
+                })
+                missing_pdf_list.append(row_info)
+
+        # 2. File PDF thừa
         extra_pdf_list = []
         for norm_code, pdf_name in pdf_map.items():
             if norm_code not in excel_map:
-                extra_pdf_list.append({
+                extra_info_dict = {f"Thông tin ({info_column})": "(Không có)"} if info_column else {}
+                extra_info_dict.update({
                     "Tên File PDF Upload": pdf_name,
                     "Trạng thái": "Thừa File PDF",
-                    "Ghi chú": "Có file PDF nhưng không tìm thấy mã tương ứng trong Excel"
+                    "Ghi chú": "Có file PDF nhưng không tìm thấy mã tương ứng trong các cột Excel đã chọn"
                 })
+                extra_pdf_list.append(extra_info_dict)
 
         # 3. Báo cáo Chi Tiết Tổng Hợp
         detailed_list = []
-        # Thêm danh sách từ Excel
-        for norm_code, original_code in excel_map.items():
-            status = "Đủ" if norm_code in pdf_map else "Thiếu File PDF"
-            pdf_filename = pdf_map.get(norm_code, "")
-            detailed_list.append({
-                "Mã Trong Excel": original_code,
-                "Tên File PDF Tải Lên": pdf_filename,
+        for item in row_status_tracker:
+            codes_in_row = item["codes"]
+            if not codes_in_row:
+                continue
+
+            matched_pdf = ""
+            status = "Thiếu File PDF"
+            for info in codes_in_row.values():
+                if info["norm"] in pdf_map:
+                    matched_pdf = pdf_map[info["norm"]]
+                    status = "Đủ"
+                    break
+
+            row_detail = {}
+            if info_column:
+                row_detail[f"Thông tin ({info_column})"] = item["info_val"]
+
+            for col_name in column_names:
+                row_detail[f"Mã ({col_name})"] = codes_in_row.get(col_name, {}).get("original", "(Trống)")
+            
+            row_detail.update({
+                "Tên File PDF Tải Lên": matched_pdf,
                 "Trạng thái": status
             })
+            detailed_list.append(row_detail)
 
-        # Thêm các file PDF thừa
         for norm_code, pdf_name in pdf_map.items():
             if norm_code not in excel_map:
-                detailed_list.append({
-                    "Mã Trong Excel": "(Không có)",
+                row_detail = {}
+                if info_column:
+                    row_detail[f"Thông tin ({info_column})"] = "(Không có)"
+                for col_name in column_names:
+                    row_detail[f"Mã ({col_name})"] = "(Không có)"
+                
+                row_detail.update({
                     "Tên File PDF Tải Lên": pdf_name,
                     "Trạng thái": "Thừa File PDF"
                 })
+                detailed_list.append(row_detail)
 
         # Xuất file Báo Cáo Excel 2 Sheet
         output_report_path = os.path.join(temp_dir, "Bao_Cao_Doi_Chieu_PDF.xlsx")
         with pd.ExcelWriter(output_report_path, engine="openpyxl") as writer:
-            df_missing = pd.DataFrame(missing_pdf_list if missing_pdf_list else [{"Thông báo": "Tất cả các mã trong Excel đều có đủ file PDF!"}])
+            df_missing = pd.DataFrame(
+                missing_pdf_list if missing_pdf_list else [{"Thông báo": "Tất cả các mã trong các cột được chọn đều có đủ file PDF!"}]
+            )
             df_missing.to_excel(writer, index=False, sheet_name="Danh_Sach_Thieu_PDF")
 
             df_detail = pd.DataFrame(detailed_list)
