@@ -8,6 +8,9 @@ from pypdf import PdfReader, PdfWriter
 from io import BytesIO
 import re
 import json
+from PIL import Image
+import pytesseract
+import io
 
 def get_pdf_thumbnails_logic(file_bytes):
     """
@@ -135,3 +138,31 @@ def split_pdf_by_ranges_logic(file_bytes: bytes, ranges_text: str):
 
     except Exception as e:
         return None, f"Lỗi xử lý PDF: {str(e)}"
+    
+def extract_text_from_crop_logic(crop_image_bytes: bytes) -> str:
+    """
+    Cắt ảnh chuẩn theo cơ chế WeChat:
+    Nhận byte ảnh nhỏ đã được Frontend crop chính xác bằng Canvas và tiến hành OCR.
+    """
+    try:
+        if not crop_image_bytes:
+            return ""
+
+        # Mở trực tiếp vùng ảnh crop người dùng khoanh
+        img = Image.open(io.BytesIO(crop_image_bytes))
+
+        # Tiền xử lý ảnh nhẹ (chuyển Grayscale) để Tesseract đọc nét hơn
+        img_gray = img.convert('L')
+
+        # Gọi Tesseract OCR (ưu tiên tiếng Việt + tiếng Anh, psm 6 thích hợp cho dòng/đoạn chữ)
+        try:
+            ocr_text = pytesseract.image_to_string(img_gray, lang='vie+eng', config='--psm 6').strip()
+        except Exception:
+            # Fallback sang tiếng Anh nếu máy chưa cài data tiếng Việt
+            ocr_text = pytesseract.image_to_string(img_gray, config='--psm 6').strip()
+
+        return ocr_text
+
+    except Exception as e:
+        print(f"Lỗi extract_text_from_crop_logic: {e}")
+        return ""

@@ -11,7 +11,7 @@ import pandas as pd
 
 # Import các logic xử lý từ thư mục services
 from services.pdf_merge_service_react import merge_pdfs_logic
-from services.pdf_split_service_react import get_pdf_thumbnails_logic, split_pdf_by_ranges_logic
+from services.pdf_split_service_react import get_pdf_thumbnails_logic, split_pdf_by_ranges_logic, extract_text_from_crop_logic
 from services.pdf_compress_service_react import compress_pdf_logic
 from services.pdf_reduce_service_react import reduce_pdf_logic
 from services.pdf_version_service_react import run_pdf_version_downgrade
@@ -69,6 +69,17 @@ def api_split_pdf_ranges(
         filename="Split_Results.zip",
         media_type="application/zip"
     )
+    
+@router.post("/extract-crop-text")
+async def api_extract_crop_text(
+    crop_image: Annotated[UploadFile, File(...)]
+):
+    try:
+        image_bytes = await crop_image.read()
+        extracted_text = extract_text_from_crop_logic(image_bytes)
+        return {"status": "success", "text": extracted_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi trích xuất chữ: {str(e)}")  
     
 @router.post("/compress")
 async def api_compress_pdf(

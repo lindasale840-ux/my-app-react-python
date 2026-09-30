@@ -29,3 +29,16 @@ export const splitPdfByRangesApi = async (file, rangesText) => {
 
   return response.data;
 };
+
+// 🆕 API 3: Trích xuất chữ từ vùng bôi đen (Crop ROI)
+export const extractCropTextApi = async (cropImageBlob) => {
+  const formData = new FormData();
+  formData.append('crop_image', cropImageBlob, 'crop.png');
+
+  const response = await axios.post(`${API_BASE_URL}/api/pdf/extract-crop-text`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 30000,
+  });
+
+  return response.data;
+};
