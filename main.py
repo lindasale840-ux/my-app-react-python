@@ -16,6 +16,7 @@ from routers.change_name_pdf_from_excel_router import router as rename_pdf_excel
 from routers.pdf_tools_router import router as pdf_tools_router
 # Thêm import router này vào main.py
 from routers.pdf_unlock_router import router as pdf_unlock_router
+from routers.pdf_to_excel_router import router as pdf_to_excel_router
 
 app = FastAPI(title="PDF & Excel Processing API")
 
@@ -53,3 +54,4 @@ app.include_router(excel_to_pdf_router)
 app.include_router(rename_pdf_excel_router)
 app.include_router(pdf_tools_router)
 app.include_router(pdf_unlock_router)
+app.include_router(pdf_to_excel_router)

@@ -41,6 +41,11 @@ const PAGES = [
   {
     path: '/pdf-unlock',
     name: '11. 🔓 Mở khóa PDF'
+  },
+  {
+    path: '/pdf-to-excel',
+    name: '12. Export PDF sang Excel'
+    
   }
 ];
 

@@ -12,6 +12,7 @@ import ExcelToPdfPage from './pages/ExcelToPdfPage';
 import RenamePdfPage from './pages/RenamePdfPage';
 import PdfToolsPage1 from './pages/PdfToolsPage1';
 import PdfUnlockPage from './pages/PdfUnlockPage';
+import PdfToExcelPage from './pages/PdfToExcelPage';
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/rename-pdf" element={<RenamePdfPage />} />
           <Route path="/pdf-tools" element={<PdfToolsPage1 />} />
           <Route path="/pdf-unlock" element={<PdfUnlockPage />} />
+          <Route path="/pdf-to-excel" element={<PdfToExcelPage />} />
 
           {/* Các Page lớn còn lại (Chưa làm thì hiện chữ giữ chỗ) */}
           <Route path="/excel" element={<h2>Trang 2: Xử lý Excel (Sắp làm)</h2>} />
