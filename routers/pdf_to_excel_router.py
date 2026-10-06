@@ -43,51 +43,65 @@ class BatchExportRequest(BaseModel):
 
 def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
     """
-    Bản tối ưu chống đơ/treo: Tách biệt render ảnh nhẹ và bóc tách bảng
+    Bản sửa lỗi: Duyệt TOÀN BỘ các trang của file PDF thay vì chỉ đọc trang đầu tiên (pages[0])
     """
     bg_image_b64 = ""
-    max_rows = 5
-    max_cols = 4
     cells_list = []
+    current_row_offset = 0
+    max_cols = 1
 
     try:
-        # 1. Render ảnh nền nhanh (DPI 100 để không tốn RAM/Thời gian)
+        # 1. Render ảnh nền trang đầu làm đại diện (hoặc ghép ảnh nếu cần)
         pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        if len(pdf_doc) > 0:
+        total_pages = len(pdf_doc)
+        
+        if total_pages > 0:
             page_0 = pdf_doc[0]
             pix = page_0.get_pixmap(dpi=100)
             img_bytes = pix.tobytes("png")
             import base64
             bg_image_b64 = "data:image/png;base64," + base64.b64encode(img_bytes).decode('utf-8')
 
-        # 2. Bóc tách bảng bằng pdfplumber có fallback
+        # 2. VÒNG LẶP DUYỆT TẤT CẢ CÁC TRANG CỦA PDF
         try:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as plumber_pdf:
-                if len(plumber_pdf.pages) > 0:
-                    first_page = plumber_pdf.pages[0]
-                    tables = first_page.extract_tables()
+                for page_idx, page in enumerate(plumber_pdf.pages):
+                    tables = page.extract_tables()
                     
-                    if tables and len(tables) > 0:
-                        raw_table = tables[0]
-                        max_rows = len(raw_table)
-                        max_cols = max([len(r) for r in raw_table]) if max_rows > 0 else 1
-                        
-                        for r_idx, row in enumerate(raw_table):
-                            for c_idx, val in enumerate(row):
-                                text_val = str(val).strip() if val is not None else ""
-                                cells_list.append({
-                                    "row": r_idx + 1,
-                                    "col": c_idx + 1,
-                                    "rowspan": 1,
-                                    "colspan": 1,
-                                    "text": text_val
-                                })
+                    if tables:
+                        for table in tables:
+                            if not table:
+                                continue
+                            
+                            # Cập nhật số cột lớn nhất
+                            for r in table:
+                                if len(r) > max_cols:
+                                    max_cols = len(r)
+
+                            # Đưa dữ liệu trang này vào danh sách chung (tăng nối tiếp số hàng)
+                            for r_idx, row in enumerate(table):
+                                actual_row = current_row_offset + r_idx + 1
+                                for c_idx, val in enumerate(row):
+                                    text_val = str(val).strip() if val is not None else ""
+                                    cells_list.append({
+                                        "row": actual_row,
+                                        "col": c_idx + 1,
+                                        "rowspan": 1,
+                                        "colspan": 1,
+                                        "text": text_val
+                                    })
+                            
+                            # Tăng offset hàng cho trang/bảng tiếp theo
+                            current_row_offset += len(table)
+
         except Exception as e_plumber:
             print(f"pdfplumber error, fallbacking: {e_plumber}")
 
-        # 3. Fallback tạo ma trận mặc định nếu pdfplumber không trích xuất được
+        # 3. Fallback nếu không bóc tách được bảng nào
         if not cells_list:
-            for r in range(1, max_rows + 1):
+            current_row_offset = 5
+            max_cols = 4
+            for r in range(1, current_row_offset + 1):
                 for c in range(1, max_cols + 1):
                     cells_list.append({
                         "row": r,
@@ -99,16 +113,16 @@ def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
 
         return {
             "filename": filename,
-            "rows": max_rows,
+            "rows": current_row_offset if current_row_offset > 0 else 5,
             "cols": max_cols,
             "cells": cells_list,
             "bg_image": bg_image_b64,
+            "total_pages": total_pages, # Trả thêm tổng số trang để Frontend biết
             "status": "Ready"
         }
 
     except Exception as e:
         print(f"Lỗi extract_table_matrix_from_pdf: {e}")
-        # Dù lỗi vẫn trả về khung mặc định chứ KHÔNG ĐƯỢC CRASH
         return {
             "filename": filename,
             "rows": 3,
