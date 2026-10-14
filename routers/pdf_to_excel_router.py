@@ -22,6 +22,48 @@ def sanitize_sheet_title(name: str) -> str:
     cleaned = re.sub(r'[\\/*?:\[\]]', '_', name)
     return cleaned[:30] if cleaned else "Sheet1"
 
+# Helper làm sạch và parse con số thông minh (Xử lý lỗi khoảng trắng 5 00,000 -> 500000)
+def clean_and_parse_number(val_str: str):
+    if not val_str:
+        return val_str
+    
+    raw = val_str.strip()
+    
+    # 1. Xóa các ký tự khoảng trắng / non-breaking space nằm giữa các chữ số hoặc dấu phân cách
+    # Ví dụ: "5 00,000" -> "500,000"
+    cleaned = re.sub(r'(?<=\d)\s+(?=\d|[,.])', '', raw)
+    cleaned = re.sub(r'(?<=[,.])\s+(?=\d)', '', cleaned)
+
+    # 2. Kiểm tra xem có phải định dạng số hợp lệ hay không
+    # Trường hợp A: Số định dạng phân cách hàng nghìn kiểu Mỹ/Anh (VD: 500,000 hoặc 500,000.50)
+    if re.match(r'^-?\d{1,3}(,\d{3})+(\.\d+)?$', cleaned):
+        try:
+            num = float(cleaned.replace(',', ''))
+            return int(num) if num.is_integer() else num
+        except ValueError:
+            pass
+
+    # Trường hợp B: Số định dạng phân cách hàng nghìn kiểu VN/Châu Âu (VD: 500.000 hoặc 500.000,50)
+    if re.match(r'^-?\d{1,3}(\.\d{3})+(,\d+)?$', cleaned):
+        try:
+            num = float(cleaned.replace('.', '').replace(',', '.'))
+            return int(num) if num.is_integer() else num
+        except ValueError:
+            pass
+
+    # Trường hợp C: Số đơn thuần (VD: "500000", "500000.5", "-12.3")
+    try:
+        # Nếu có dấu phẩy đơn (VD: "500,50" -> "500.50")
+        temp = cleaned.replace(',', '.') if cleaned.count(',') == 1 and '.' not in cleaned else cleaned
+        num = float(temp)
+        return int(num) if num.is_integer() else num
+    except ValueError:
+        pass
+
+    # Nếu không phải là số, trả về chuỗi gốc đã được làm sạch khoảng trắng
+    return cleaned
+
+
 # Pydantic model cho matrix từ Frontend
 class CellModel(BaseModel):
     row: int
@@ -43,7 +85,7 @@ class BatchExportRequest(BaseModel):
 
 def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
     """
-    Bản sửa lỗi: Duyệt TOÀN BỘ các trang của file PDF thay vì chỉ đọc trang đầu tiên (pages[0])
+    Bản sửa lỗi: Duyệt TOÀN BỘ các trang của file PDF và tự động làm sạch khoảng trắng trong số
     """
     bg_image_b64 = ""
     cells_list = []
@@ -51,7 +93,7 @@ def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
     max_cols = 1
 
     try:
-        # 1. Render ảnh nền trang đầu làm đại diện (hoặc ghép ảnh nếu cần)
+        # 1. Render ảnh nền trang đầu làm đại diện
         pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         total_pages = len(pdf_doc)
         
@@ -83,12 +125,17 @@ def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
                                 actual_row = current_row_offset + r_idx + 1
                                 for c_idx, val in enumerate(row):
                                     text_val = str(val).strip() if val is not None else ""
+                                    
+                                    # SỬA LỖI: Làm sạch khoảng trắng rác trong chuỗi số (ví dụ: "5 00,000" -> "500,000")
+                                    cleaned_text = re.sub(r'(?<=\d)\s+(?=\d|[,.])', '', text_val)
+                                    cleaned_text = re.sub(r'(?<=[,.])\s+(?=\d)', '', cleaned_text)
+
                                     cells_list.append({
                                         "row": actual_row,
                                         "col": c_idx + 1,
                                         "rowspan": 1,
                                         "colspan": 1,
-                                        "text": text_val
+                                        "text": cleaned_text
                                     })
                             
                             # Tăng offset hàng cho trang/bảng tiếp theo
@@ -117,7 +164,7 @@ def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
             "cols": max_cols,
             "cells": cells_list,
             "bg_image": bg_image_b64,
-            "total_pages": total_pages, # Trả thêm tổng số trang để Frontend biết
+            "total_pages": total_pages,
             "status": "Ready"
         }
 
@@ -139,9 +186,6 @@ def extract_table_matrix_from_pdf(pdf_bytes: bytes, filename: str):
 
 @router.post("/analyze-batch")
 async def api_analyze_batch(files: List[UploadFile] = File(...)):
-    """
-    Phân tích danh sách PDF tải lên và trả về ma trận cấu trúc + ảnh xem trước
-    """
     results = []
     for file in files:
         content = await file.read()
@@ -150,7 +194,7 @@ async def api_analyze_batch(files: List[UploadFile] = File(...)):
     return JSONResponse(content={"status": "success", "data": results})
 
 
-# Cập nhật hàm write_matrix_to_sheet trong pdf_to_excel_router.py
+# Cập nhật hàm write_matrix_to_sheet sử dụng hàm clean_and_parse_number mới
 def write_matrix_to_sheet(ws, matrix: MatrixPayload):
     thin_border = Border(
         left=Side(style='thin', color='CCCCCC'),
@@ -174,15 +218,14 @@ def write_matrix_to_sheet(ws, matrix: MatrixPayload):
         cell_obj = ws.cell(row=r, column=c)
         val = cell.text.strip() if cell.text else ""
         
-        # Parse số / định dạng
-        if val.replace('.', '', 1).replace(',', '', 1).isdigit():
-            try:
-                cell_obj.value = float(val.replace(',', '.')) if ',' in val else float(val)
-            except ValueError:
-                cell_obj.value = val
-        else:
-            cell_obj.value = val
-            
+        # SỬA LỖI: Sử dụng hàm parse số thông minh để nhận diện đúng 500,000 thành kiểu số trong Excel
+        parsed_value = clean_and_parse_number(val)
+        cell_obj.value = parsed_value
+        
+        # Đặt định dạng hiển thị cho ô nếu là con số thực sự
+        if isinstance(parsed_value, (int, float)):
+            cell_obj.number_format = '#,##0.00' if isinstance(parsed_value, float) and not parsed_value.is_integer() else '#,##0'
+
         cell_obj.alignment = Alignment(vertical='center', wrap_text=True)
         cell_obj.border = thin_border
         
@@ -203,9 +246,6 @@ def write_matrix_to_sheet(ws, matrix: MatrixPayload):
 
 @router.post("/export-excel")
 async def api_export_excel(payload: BatchExportRequest):
-    """
-    Xuất Excel từ ma trận JSON kiểm duyệt từ Frontend (Single Multi-Sheet HOẶC ZIP File)
-    """
     try:
         if payload.export_mode == "single_file":
             wb = openpyxl.Workbook()
