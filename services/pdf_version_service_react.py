@@ -1,6 +1,7 @@
 import os
 import tempfile
 import subprocess
+from typing import List
 
 def find_ghostscript():
     candidates = [
@@ -32,12 +33,10 @@ def find_ghostscript():
 
 
 def run_pdf_version_downgrade(file_bytes: bytes, compatibility: str = "1.4"):
-    # Tạo file tạm đầu vào
     temp_in = os.path.join(tempfile.gettempdir(), f"input_version_{os.urandom(4).hex()}.pdf")
     with open(temp_in, "wb") as f:
         f.write(file_bytes)
 
-    # Đường dẫn file đầu ra
     temp_out = os.path.join(
         tempfile.gettempdir(),
         f"PDF_v{compatibility.replace('.', '_')}_{os.urandom(4).hex()}.pdf"
@@ -57,16 +56,11 @@ def run_pdf_version_downgrade(file_bytes: bytes, compatibility: str = "1.4"):
             temp_in
         ]
 
-        subprocess.run(
-            cmd,
-            check=True
-        )
-
+        subprocess.run(cmd, check=True)
         return temp_out, None
 
     except Exception as e:
         return None, str(e)
     finally:
-        # Dọn dẹp file tạm đầu vào
         if os.path.exists(temp_in):
             os.remove(temp_in)

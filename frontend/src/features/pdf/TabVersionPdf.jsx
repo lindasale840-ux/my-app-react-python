@@ -1,22 +1,22 @@
 import React, { useState } from 'react';
-import { downgradePdfVersionApi } from '../../services/pdfVersionService';
+import { downgradePdfBatchApi } from '../../services/pdfVersionService';
 
 export default function TabVersionPdf() {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [compatibility, setCompatibility] = useState("1.4");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      setFiles(Array.from(e.target.files));
       setMessage('');
     }
   };
 
   const handleDowngrade = async () => {
-    if (!file) {
-      alert("Vui lòng chọn 1 file PDF!");
+    if (files.length === 0) {
+      alert("Vui lòng chọn ít nhất 1 file PDF!");
       return;
     }
 
@@ -24,18 +24,19 @@ export default function TabVersionPdf() {
     setMessage('');
 
     try {
-      const blobData = await downgradePdfVersionApi(file, compatibility);
+      const blobData = await downgradePdfBatchApi(files, compatibility);
 
-      // Tự động tải file về
-      const url = window.URL.createObjectURL(new Blob([blobData]));
+      // Tự động tải file ZIP chứa các file đã hạ phiên bản với tên gốc về máy
+      const url = window.URL.createObjectURL(new Blob([blobData], { type: 'application/zip' }));
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `v${compatibility}_${file.name}`);
+      link.setAttribute("download", `Downgraded_PDFs_v${compatibility}_${Date.now()}.zip`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
 
-      setMessage(`✅ Đã hạ PDF về phiên bản ${compatibility} thành công!`);
+      setMessage(`✅ Đã hạ phiên bản ${files.length} file PDF về v${compatibility} và đóng gói ZIP thành công!`);
     } catch (err) {
       setMessage(`❌ Lỗi: ${err.response?.data?.detail || err.message}`);
     } finally {
@@ -46,17 +47,18 @@ export default function TabVersionPdf() {
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '10px' }}>
       <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px', color: '#1e293b' }}>
-        Hạ Phiên Bản PDF (Compatibility)
+        Hạ Phiên Bản PDF Hàng Loạt (Compatibility)
       </h2>
 
-      {/* Chọn File */}
+      {/* Chọn danh sách File (Hỗ trợ chọn nhiều) */}
       <div style={{ marginBottom: '16px' }}>
         <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#334155' }}>
-          Chọn file PDF:
+          Chọn danh sách file PDF:
         </label>
         <input
           type="file"
           accept=".pdf"
+          multiple // Cho phép chọn nhiều file cùng lúc
           onChange={handleFileChange}
           style={{
             display: 'block',
@@ -67,6 +69,11 @@ export default function TabVersionPdf() {
             fontSize: '14px',
           }}
         />
+        {files.length > 0 && (
+          <p style={{ marginTop: '6px', fontSize: '13px', color: '#0284c7', fontWeight: '500' }}>
+            📄 Đã chọn {files.length} file PDF.
+          </p>
+        )}
       </div>
 
       {/* Chọn phiên bản PDF */}
@@ -98,21 +105,21 @@ export default function TabVersionPdf() {
       {/* Nút Thực hiện */}
       <button
         onClick={handleDowngrade}
-        disabled={loading || !file}
+        disabled={loading || files.length === 0}
         style={{
           width: '100%',
           padding: '12px',
-          backgroundColor: loading || !file ? '#94a3b8' : '#0284c7',
+          backgroundColor: loading || files.length === 0 ? '#94a3b8' : '#0284c7',
           color: '#ffffff',
           border: 'none',
           borderRadius: '6px',
           fontWeight: 'bold',
           fontSize: '15px',
-          cursor: loading || !file ? 'not-allowed' : 'pointer',
+          cursor: loading || files.length === 0 ? 'not-allowed' : 'pointer',
           transition: 'background-color 0.2s',
         }}
       >
-        {loading ? "Đang xử lý hạ phiên bản..." : "Thực Hiện Hạ Phiên Bản"}
+        {loading ? "Đang xử lý hạ phiên bản hàng loạt..." : `Thực Hiện Hạ Phiên Bản (${files.length} File)`}
       </button>
 
       {/* Thông báo kết quả */}

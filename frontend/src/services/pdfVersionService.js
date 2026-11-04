@@ -2,16 +2,21 @@ import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:8000';
 
-export const downgradePdfVersionApi = async (file, compatibility = "1.4") => {
+export const downgradePdfBatchApi = async (files, compatibility = "1.4") => {
   const formData = new FormData();
-  formData.append("file", file);
+  
+  // Đính kèm danh sách nhiều file vào FormData
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  
   formData.append("compatibility", compatibility);
 
-  const response = await axios.post(`${API_BASE_URL}/api/pdf/downgrade-version`, formData, {
+  const response = await axios.post(`${API_BASE_URL}/api/pdf-version/downgrade-batch`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
-    responseType: "blob",
+    responseType: "blob", // Nhận về file ZIP dạng Blob
   });
 
   return response.data;
