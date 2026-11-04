@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/pdfsplit", tags=["PDFSplit"])
 # ==============================================================================
 KEYWORDS_SO_GCN = [
     "Mã số GCN", "Số GCN", "Số/No", "Certificate No.", "Certificate No", 
-    "No.", "证书编号", "证书号", "编号"
+    "No.", "证书编号", "证书号", "编号", "Mã GCN", "GCN No"
 ]
 
 KEYWORDS_MA_QL = [
@@ -88,56 +88,75 @@ def clean_extracted_value(text: str, anchor_keywords: List[str] = None) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def get_text_next_to_anchors(page, anchor_keywords: List[str], shift_right=250, shift_down=25) -> str:
+def get_text_next_to_anchors(page, anchor_keywords: List[str], shift_right=400, shift_down=35) -> str:
     """
-    Tìm vị trí Mỏ neo (Anchor keyword). 
-    Quét vùng bên phải, nếu không có chữ thì quét vùng ngay bên dưới.
+    Tìm vị trí Mỏ neo. Cho phép nhận mã ngắn từ 1 ký tự (len >= 1 như 1, 2, 3),
+    nhưng loại trừ tuyệt đối các từ rác đơn lẻ.
     """
     for kw in anchor_keywords:
         rects = page.search_for(kw, flags=1)
         if rects:
-            rect = rects[0]
-            # 1. Thử lấy chữ bên phải mỏ neo (cho phép nhận chuỗi từ 1 ký tự trở lên với len >= 1)
-            search_area_right = fitz.Rect(rect.x1, rect.y0 - 2, rect.x1 + shift_right, rect.y1 + 4)
-            val_right = page.get_text("text", clip=search_area_right).strip()
-            clean_val = clean_extracted_value(val_right, anchor_keywords)
-            if clean_val and len(clean_val) >= 1 and clean_val.lower() != kw.lower():
-                return clean_val
+            for rect in rects:
+                # 1. Thử lấy chữ bên phải mỏ neo
+                search_area_right = fitz.Rect(rect.x1, rect.y0 - 2, rect.x1 + shift_right, rect.y1 + 4)
+                val_right = page.get_text("text", clip=search_area_right).strip()
+                clean_val = clean_extracted_value(val_right, anchor_keywords)
+                
+                # Cho phép len >= 1 (để nhận '1', '2', '3'), nhưng loại bỏ các từ rác cụ thể
+                if clean_val and len(clean_val) >= 1 and clean_val.lower() not in [kw.lower(), "số", "so", "_", "-", "khách hàng", "khach hang"]:
+                    return clean_val
 
-            # 2. Nếu bên phải trống, thử lấy chữ dòng bên dưới mỏ neo
-            search_area_below = fitz.Rect(rect.x0 - 5, rect.y1, rect.x1 + shift_right, rect.y1 + shift_down)
-            val_below = page.get_text("text", clip=search_area_below).strip()
-            clean_val_below = clean_extracted_value(val_below, anchor_keywords)
-            if clean_val_below and len(clean_val_below) >= 1 and clean_val_below.lower() != kw.lower():
-                return clean_val_below
+                # 2. Nếu bên phải trống, lấy chữ dòng bên dưới mỏ neo
+                search_area_below = fitz.Rect(rect.x0 - 5, rect.y1, rect.x1 + shift_right, rect.y1 + shift_down)
+                val_below = page.get_text("text", clip=search_area_below).strip()
+                clean_val_below = clean_extracted_value(val_below, anchor_keywords)
+                if clean_val_below and len(clean_val_below) >= 1 and clean_val_below.lower() not in [kw.lower(), "số", "so", "_", "-", "khách hàng", "khach hang"]:
+                    return clean_val_below
     return ""
 
 def extract_gcn_with_flexible_regex(page) -> Optional[str]:
     """
-    Tìm Mã GCN: Bắt buộc sau tiền tố AC hoặc C phải là con số (loại bỏ hoàn toàn CERTIFICATE),
-    giữ nguyên vẹn dấu _, ., gạch ngang và các định dạng mã mới/cũ.
+    Trích xuất GCN chuẩn xác: Dùng mỏ neo để tìm vùng, 
+    nhưng BẮT BUỘC phải khớp qua Regex mới được công nhận là mã GCN.
     """
     text_to_search = ""
     
     if hasattr(page, "search_for"):
+        # 1. Thử tìm qua mỏ neo trước
         val_anchor = get_text_next_to_anchors(page, KEYWORDS_SO_GCN)
-        if not val_anchor:
-            text_to_search = page.get_text("text") if hasattr(page, "get_text") else str(page)
-        else:
-            text_to_search = val_anchor
+        if val_anchor:
+            print(f"[DEBUG] Vùng mỏ neo quét được: '{val_anchor}'")
+            # QUAN TRỌNG: Phải chạy Regex trên text mỏ neo, KHÔNG ĐƯỢC lấy nguyên cục trả về!
+            gcn_from_anchor = run_gcn_regex_filter(val_anchor)
+            if gcn_from_anchor:
+                print(f"[DEBUG] -> Khớp Regex thành công từ mỏ neo: '{gcn_from_anchor}'")
+                return gcn_from_anchor
+
+        # 2. Nếu mỏ neo không có hoặc text mỏ neo không khớp Regex, quét toàn trang
+        text_to_search = page.get_text("text") if hasattr(page, "get_text") else str(page)
     else:
         text_to_search = str(page)
 
-    if not text_to_search:
+    return run_gcn_regex_filter(text_to_search)
+
+
+def run_gcn_regex_filter(text: str) -> Optional[str]:
+    """Hàm lọc độc lập: Chỉ chấp nhận chuỗi thỏa mãn định dạng mã GCN thực sự"""
+    if not text:
         return None
+    text_upper = text.upper()
 
-    text_upper = text_to_search.upper()
+    # 1. Khớp mã dạng chuẩn cũ có gạch ngang (vd: C202610-T0871)
+    m_dashed = re.search(r'\b((?:AC|C)[A-Z0-9]{2,}\s*[-_]\s*[A-Z0-9]{2,}(?:\s*[-_]\s*[A-Z0-9]+)?)\b', text_upper)
+    if m_dashed:
+        return re.sub(r'\s*', '', m_dashed.group(1))
 
-    # Biểu thức tối ưu: Bắt buộc sau AC hoặc C phải là một chữ số (\d)
-    # Giúp chặn đứng chữ "CERTIFICATE" nhưng bắt trọn _AC..., .AC..., AC., C2026...
-    m_gcn = re.search(r'([_\.]?(?:AC|C)\d[A-Z0-9\.\-\_]{4,25})', text_upper)
-    if m_gcn:
-        return re.sub(r'\s*', '', m_gcn.group(1))
+    # 2. Khớp mã mới có tiền tố AC hoặc C (bắt buộc sau C/AC phải là số để chặn các từ như KHÁCH HÀNG, CERTIFICATE)
+    m_code = re.search(r'([_\.]?(?:AC|C)\d[A-Z0-9\.\-\_]{4,25})', text_upper)
+    if m_code:
+        cand = re.sub(r'\s*', '', m_code.group(1))
+        if "CERTIFICATE" not in cand and "KHACH" not in cand and "KHÁCH" not in cand:
+            return cand
 
     return None
 
@@ -322,14 +341,23 @@ async def split_pdf_excel(
         cut_points = []
         last_gcn_found = None
 
+        # --- SỬA TỪ ĐOẠN NÀY ĐỂ BẢO TOÀN LOGIC CẮT VÀ GOM NHÓM ---
         for i, page in enumerate(doc):
             if search_any_keyword_in_page(page, keywords):
+                # Lấy trực tiếp mã GCN từ trang bằng hàm flexible regex mới
                 current_gcn = extract_gcn_with_flexible_regex(page)
 
-                if not cut_points or (current_gcn and current_gcn != last_gcn_found):
+                # Nếu tìm thấy mã GCN mới khác với mã trước đó, đánh dấu là một điểm cắt mới
+                if current_gcn and current_gcn != last_gcn_found:
                     cut_points.append(i)
-                    if current_gcn:
-                        last_gcn_found = current_gcn
+                    last_gcn_found = current_gcn
+                elif not cut_points:
+                    # Đảm bảo trang đầu tiên có chứa từ khóa luôn được thêm làm điểm cắt khởi đầu
+                    cut_points.append(i)
+
+        # Nếu file có từ khóa nhưng Regex chưa bắt kịp ngay trang đầu, ép cắt từ trang 0
+        if not cut_points and len(doc) > 0:
+            cut_points.append(0)
 
         zip_path = os.path.join(temp_dir, f"Tach_Excel_Theo_{naming_type}.zip")
         used_names = {}
@@ -344,9 +372,14 @@ async def split_pdf_excel(
 
                 page_count = len(new_doc)
                 gcn_key = extract_gcn_with_flexible_regex(new_doc[0])
+                print(f"[EXCEL DEBUG] GCN trích xuất được từ PDF: '{gcn_key}'")
 
-                if gcn_key:
+                # KHỞI TẠO GIÁ TRỊ MẶC ĐỊNH AN TOÀN ĐỂ TRÁNH LỖI UNBOUNDLOCALERROR
+                final_filename = f"Khong_Match_Excel_{i+1}"
+
+                if gcn_key and "KHÁCHHÀNG" not in gcn_key.upper():
                     clean_gcn_key = normalize_key(gcn_key)
+                    print(f"[EXCEL DEBUG] GCN sau khi normalize: '{clean_gcn_key}'")
                     matched_rows = df[excel_column_clean == clean_gcn_key]
 
                     if matched_rows.empty:
@@ -377,6 +410,8 @@ async def split_pdf_excel(
                         elif naming_type == "gcn_ten_tb":
                             clean_ten = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', excel_ten)
                             final_filename = f"{gcn_key}_{clean_ten}" if clean_ten else f"GCN_{gcn_key}"
+                    else:
+                        final_filename = f"Khong_Tim_Thay_Trong_Excel_{gcn_key}"
                 else:
                     final_filename = f"Khong_Do_Duoc_GCN_{i+1}"
 
