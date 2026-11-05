@@ -141,17 +141,17 @@ def extract_gcn_with_flexible_regex(page) -> Optional[str]:
 
 
 def run_gcn_regex_filter(text: str) -> Optional[str]:
-    """Hàm lọc độc lập: Chỉ chấp nhận chuỗi thỏa mãn định dạng mã GCN thực sự"""
+    """Hàm lọc độc lập: Đã cập nhật hỗ trợ các định dạng mã GCN mới (.AC, _AC, AC)"""
     if not text:
         return None
     text_upper = text.upper()
 
-    # 1. Khớp mã dạng chuẩn cũ có gạch ngang (vd: C202610-T0871)
-    m_dashed = re.search(r'\b((?:AC|C)[A-Z0-9]{2,}\s*[-_]\s*[A-Z0-9]{2,}(?:\s*[-_]\s*[A-Z0-9]+)?)\b', text_upper)
+    # 1. Khớp mã dạng chuẩn cũ có gạch ngang (vd: C202610-T0871) hoặc tiền tố AC
+    m_dashed = re.search(r'\b(?:[_\.\-\s]*)*((?:AC|C)[A-Z0-9]{2,}\s*[-_]\s*[A-Z0-9]{2,}(?:\s*[-_]\s*[A-Z0-9]+)?)\b', text_upper)
     if m_dashed:
         return re.sub(r'\s*', '', m_dashed.group(1))
 
-    # 2. Khớp mã mới có tiền tố AC hoặc C (bắt buộc sau C/AC phải là số để chặn các từ như KHÁCH HÀNG, CERTIFICATE)
+    # 2. Khớp mã mới có tiền tố AC, _AC, .AC hoặc C
     m_code = re.search(r'([_\.]?(?:AC|C)\d[A-Z0-9\.\-\_]{4,25})', text_upper)
     if m_code:
         cand = re.sub(r'\s*', '', m_code.group(1))
