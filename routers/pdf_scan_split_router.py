@@ -50,27 +50,36 @@ def preprocess_image_for_ocr(page, dpi=300, top_percent=1.0):
 
 def generate_smart_variants(norm_candidate: str) -> list:
     """
-    Sinh biến thể thông minh: Giữ nguyên các con số thuần túy (năm, số seri),
-    chỉ xử lý điểm mù OCR thường nhầm lẫn giữa 0 và O ở ranh giới số-chữ.
+    Sinh biến thể thông minh mở rộng cho mã dài đến 25 ký tự (_AC, .AC, AC.)
+    Giới hạn số lượng biến thể sinh ra để tuyệt đối không bị tràn RAM hay đơ Server.
     """
     variants = {norm_candidate}
     
-    # 1. Xử lý lỗi Tesseract đọc chữ O thành số 0 ở giáp ranh chữ cái (Ví dụ: 100SLA -> 10OSLA)
-    # Tìm số 0 đứng sau một số khác và đứng trước một chữ cái in hoa
+    # 1. Xử lý lỗi Tesseract đọc chữ O thành số 0 hoặc ngược lại ở ranh giới chữ-số
     fixed_boundary = re.sub(r'(?<=\d)0(?=[A-Z])', 'O', norm_candidate)
     if fixed_boundary != norm_candidate:
         variants.add(fixed_boundary)
         
-    # 2. Xử lý ngược lại nếu có trường hợp chữ O bị đọc thành số 0 ở đầu các khối chữ
     fixed_boundary_2 = re.sub(r'(?<=[A-Z])0(?=[A-Z])', 'O', norm_candidate)
     if fixed_boundary_2 != norm_candidate:
         variants.add(fixed_boundary_2)
 
-    # 3. Các biến thể thay thế ký tự đọc nhầm phổ biến khác (I <-> 1, 7 <-> 1)
+    # Xử lý trường hợp chữ O bị kẹp giữa các số (rất hay gặp trong seri _AC202610OSLA0030001)
+    fixed_zero_o = re.sub(r'(?<=\d)O(?=\d)', '0', norm_candidate)
+    if fixed_zero_o != norm_candidate:
+        variants.add(fixed_zero_o)
+        
+    fixed_o_zero = re.sub(r'(?<=\d)0(?=\d)', 'O', norm_candidate)
+    if fixed_o_zero != norm_candidate:
+        variants.add(fixed_o_zero)
+
+    # 2. Các biến thể thay thế ký tự đọc nhầm phổ biến khác (I <-> 1, 7 <-> 1)
     variants.add(norm_candidate.replace('I', '1'))
     variants.add(norm_candidate.replace('7', '1'))
     
-    return list(variants)
+    # Giới hạn an toàn danh sách biến thể để tránh phình to quá mức (tối đa 10 biến thể unique)
+    return list(variants)[:10]
+
 
 def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
     if not text or not excel_gcn_list:
@@ -83,14 +92,23 @@ def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
         if not gcn:
             continue
         original_gcn = str(gcn).strip()
-        norm = re.sub(r'[-\s\.\/_]', '', original_gcn.upper())
-        if norm:
-            excel_map[norm] = original_gcn
+        
+        # Chuẩn hóa key trong Excel: 
+        # Vẫn giữ lại dấu chấm nếu nó ở dạng AC. (ví dụ AC.2026...), nhưng loại bỏ các ký tự rác đầu như _ hoặc khoảng trắng thừa.
+        norm = original_gcn.upper()
+        # Loại bỏ gạch dưới, khoảng trắng, gạch chéo nhưng CÂN nhắc giữ lại dấu chấm nếu nó nằm giữa chữ/số hoặc thay thế phù hợp
+        norm = re.sub(r'^[\s_\-\.]+', '', norm) # Xóa rác đầu chuỗi
+        excel_map[norm] = original_gcn
+        
+        # Thêm một bản dạng hoàn toàn sạch kí tự đặc biệt để đối chiếu quét mờ
+        norm_clean = re.sub(r'[-\s\.\/_]', '', norm)
+        if norm_clean:
+            excel_map[norm_clean] = original_gcn
 
-    # Quét tất cả các ứng viên có thể là mã GCN trong text OCR
-    candidates = re.findall(r'(?:[_\.\-\s]*)*([A-Z]{1,2}[A-Z0-9_\.\-\/]{5,25})', text)
+    # Quét tất cả các ứng viên có thể là mã GCN trong text OCR (Hỗ trợ độ dài mã lên đến 25-30 ký tự, hỗ trợ tiền tố _AC, .AC, AC.)
+    candidates = re.findall(r'(?:[_\.\-\s]*)*([A-Z]{1,3}[\.A-Z0-9_\.\-\/]{5,28})', text)
     
-    candidates_raw = re.findall(r'[A-Z0-9_\.\-\/]{7,30}', text)
+    candidates_raw = re.findall(r'[_\.\-]?[A-Z0-9_\.\-\/]{7,32}', text)
     for c in candidates_raw:
         if len(c) >= 7:
             candidates.append(c)
@@ -99,30 +117,37 @@ def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
         return None
 
     for candidate in candidates:
-        norm_candidate = re.sub(r'[-\s\.\/_]', '', candidate.upper())
+        # Làm sạch bớt các ký tự định dạng thừa ở đầu ứng viên OCR
+        cleaned_candidate = re.sub(r'^[\s_\-\.]+', '', candidate.upper())
+        norm_candidate = re.sub(r'[-\s\/\_]', '', cleaned_candidate) # Giữ lại dấu chấm nếu có cấu trúc AC.
         
         if len(norm_candidate) < 6:
             continue
 
-        # GỌI HÀM SINH BIẾN THỂ THÔNG MINH
+        # GỌI HÀM SINH BIẾN THỂ THÔNG MINH (Đã giới hạn tối đa biến thể để chống tràn RAM)
         variants = generate_smart_variants(norm_candidate)
+        # Bổ sung thêm biến thể giữ nguyên dấu chấm nếu candidate gốc có chứa dấu chấm
+        if '.' in cleaned_candidate:
+            variants.append(cleaned_candidate)
 
         for variant in variants:
             # 1. Khớp chính xác hoàn toàn với key trong Excel
             if variant in excel_map:
                 return excel_map[variant]
             
-            # 2. Khớp mờ phần đuôi
+            # 2. Khớp mờ phần đuôi hoặc khớp qua dạng clean hoàn toàn
+            variant_fully_clean = re.sub(r'[\.\-\s\/_]', '', variant)
             for excel_norm, original_val in excel_map.items():
-                if variant.endswith(excel_norm) or excel_norm.endswith(variant):
-                    if len(variant) >= 6:
+                excel_fully_clean = re.sub(r'[\.\-\s\/_]', '', excel_norm)
+                if variant_fully_clean.endswith(excel_fully_clean) or excel_fully_clean.endswith(variant_fully_clean):
+                    if len(variant_fully_clean) >= 6:
                         return original_val
 
     return None
 
 
 def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: list, dpi=300, top_percent=1.0, lang='vie+eng'):
-    """Worker OCR cho Multiprocessing (Có kèm log debug)"""
+    """Worker OCR cho Multiprocessing (Đã tối ưu dọn dẹp bộ nhớ RAM qua gc.collect)"""
     doc = None
     page = None
     img_array = None
@@ -139,15 +164,12 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
 
         img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
 
+        # Cho phép nhận diện cả dấu chấm (.) và dấu gạch dưới (_) trong cấu hình whitelist của Tesseract
         custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. _'
         page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
         page_text = re.sub(r'\n+', ' ', page_text).strip()
 
-        # -------------------------------------------------------------
-        # 🔍 IN LOG DEBUG RA CONSOLE ĐỂ XEM TESSERACT ĐỌC ĐƯỢC GÌ
-        # -------------------------------------------------------------
         print(f"\n--- [DEBUG TRANG {page_num + 1}] ---")
-        print(f"RAW TEXT OCR: {page_text[:300]}...") # In 300 ký tự đầu tiên đọc được
         
         detected_gcn = extract_gcn_intelligent(page_text, excel_gcn_list)
         print(f"-> KẾT QUẢ MATCH GCN: {detected_gcn}")
