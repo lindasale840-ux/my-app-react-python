@@ -16,7 +16,6 @@ import numpy as np
 import cv2
 import pytesseract
 from PIL import Image, ImageEnhance
-import itertools
 
 # Configure logs and warnings
 warnings.filterwarnings("ignore")
@@ -34,43 +33,23 @@ def clean_filename(text: str) -> str:
     return re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', str(text)).strip()
 
 
-def preprocess_image_for_ocr(page, dpi=300, top_percent=1.0):
+def preprocess_image_for_ocr(page, dpi=300, top_percent=0.6):
     rect = page.rect
-    # Mở rộng top_percent lên 1.0 để quét toàn bộ trang, đảm bảo không bỏ sót mã ở góc hay phần dưới
     crop_rect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y0 + rect.height * top_percent)
     
+    # Render trực tiếp ở DPI 300 để lấy độ phân giải cao chuẩn
     mat = fitz.Matrix(dpi / 72, dpi / 72)
     pix = page.get_pixmap(matrix=mat, clip=crop_rect)
     
+    # Chuyển trực tiếp sang PIL Grayscale
     pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert('L')
+    
+    # Tăng nhẹ độ tương phản (không làm vỡ/đứt nét chữ)
     enhancer = ImageEnhance.Contrast(pil_img)
     pil_img = enhancer.enhance(1.5)
     
+    # Trả về mảng numpy dạng ảnh xám sạch (Không dùng cv2.threshold)
     return np.array(pil_img)
-
-def generate_smart_variants(norm_candidate: str) -> list:
-    """
-    Sinh biến thể thông minh: Giữ nguyên các con số thuần túy (năm, số seri),
-    chỉ xử lý điểm mù OCR thường nhầm lẫn giữa 0 và O ở ranh giới số-chữ.
-    """
-    variants = {norm_candidate}
-    
-    # 1. Xử lý lỗi Tesseract đọc chữ O thành số 0 ở giáp ranh chữ cái (Ví dụ: 100SLA -> 10OSLA)
-    # Tìm số 0 đứng sau một số khác và đứng trước một chữ cái in hoa
-    fixed_boundary = re.sub(r'(?<=\d)0(?=[A-Z])', 'O', norm_candidate)
-    if fixed_boundary != norm_candidate:
-        variants.add(fixed_boundary)
-        
-    # 2. Xử lý ngược lại nếu có trường hợp chữ O bị đọc thành số 0 ở đầu các khối chữ
-    fixed_boundary_2 = re.sub(r'(?<=[A-Z])0(?=[A-Z])', 'O', norm_candidate)
-    if fixed_boundary_2 != norm_candidate:
-        variants.add(fixed_boundary_2)
-
-    # 3. Các biến thể thay thế ký tự đọc nhầm phổ biến khác (I <-> 1, 7 <-> 1)
-    variants.add(norm_candidate.replace('I', '1'))
-    variants.add(norm_candidate.replace('7', '1'))
-    
-    return list(variants)
 
 def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
     if not text or not excel_gcn_list:
@@ -79,56 +58,101 @@ def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
     text = text.upper()
 
     excel_map = {}
+    valid_prefix_letters = set()
+
     for gcn in excel_gcn_list:
         if not gcn:
             continue
-        original_gcn = str(gcn).strip()
-        norm = re.sub(r'[-\s\.\/_]', '', original_gcn.upper())
-        if norm:
-            excel_map[norm] = original_gcn
+        norm = re.sub(r'[-\s\.]', '', str(gcn).upper())
+        excel_map[norm] = str(gcn).upper()
+        
+        if norm and norm[0].isalpha():
+            valid_prefix_letters.add(norm[0])
 
-    # Quét tất cả các ứng viên có thể là mã GCN trong text OCR
-    candidates = re.findall(r'(?:[_\.\-\s]*)*([A-Z]{1,2}[A-Z0-9_\.\-\/]{5,25})', text)
-    
-    candidates_raw = re.findall(r'[A-Z0-9_\.\-\/]{7,30}', text)
-    for c in candidates_raw:
-        if len(c) >= 7:
-            candidates.append(c)
+    if not valid_prefix_letters:
+        valid_prefix_letters = {'C', 'T'}
+
+    ocr_error_map = {
+        '0': ['C', 'O', 'Q', 'D'],
+        'O': ['C', '0', 'Q', 'D'],
+        '7': ['T', '1', 'I'],
+        '1': ['T', 'I', '7', 'L'],
+        'I': ['T', '1', '7', 'L'],
+        '+': ['T'],
+        '|': ['T', 'I', '1']
+    }
+
+    prefix_pattern = "".join(valid_prefix_letters.union(set(ocr_error_map.keys())))
+    candidates = re.findall(
+        rf'[{prefix_pattern}][A-Z0-9]{{6}}[- ]?[A-Z0-9]{{1,2}}[- ]?[A-Z0-9]{{4,6}}',
+        text
+    )
 
     if not candidates:
         return None
 
     for candidate in candidates:
-        norm_candidate = re.sub(r'[-\s\.\/_]', '', candidate.upper())
+        norm_candidate = re.sub(r'[-\s\.]', '', candidate.upper())
         
-        if len(norm_candidate) < 6:
+        if len(norm_candidate) < 8:
             continue
 
-        # GỌI HÀM SINH BIẾN THỂ THÔNG MINH
-        variants = generate_smart_variants(norm_candidate)
+        ky_tu_dau = norm_candidate[0]
+        sau_so_dau = norm_candidate[1:7]
+        phan_he = norm_candidate[7]
+        so_seri = norm_candidate[8:]
 
-        for variant in variants:
-            # 1. Khớp chính xác hoàn toàn với key trong Excel
+        possible_variants = []
+
+        dau_opts = []
+        if ky_tu_dau in valid_prefix_letters:
+            dau_opts.append(ky_tu_dau)
+
+        if ky_tu_dau in ocr_error_map:
+            for possible_char in ocr_error_map[ky_tu_dau]:
+                if possible_char in valid_prefix_letters:
+                    dau_opts.append(possible_char)
+
+        if not dau_opts:
+            dau_opts = [ky_tu_dau]
+
+        sau_so_opts = [sau_so_dau, sau_so_dau.replace('O', '0')]
+        
+        phan_he_opts = [phan_he]
+        if phan_he == '0': phan_he_opts.append('O')
+        elif phan_he == 'O': phan_he_opts.append('0')
+            
+        so_seri_opts = [so_seri]
+        if 'O' in so_seri:
+            so_seri_opts.append(so_seri.replace('O', '0'))
+
+        for d in dau_opts:
+            for s6 in sau_so_opts:
+                for ph in phan_he_opts:
+                    for ss in so_seri_opts:
+                        variant = f"{d}{s6}{ph}{ss}"
+                        possible_variants.append(variant)
+
+        possible_variants = list(dict.fromkeys(possible_variants))
+
+        for variant in possible_variants:
             if variant in excel_map:
                 return excel_map[variant]
-            
-            # 2. Khớp mờ phần đuôi
-            for excel_norm, original_val in excel_map.items():
-                if variant.endswith(excel_norm) or excel_norm.endswith(variant):
-                    if len(variant) >= 6:
-                        return original_val
 
     return None
 
 
-def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: list, dpi=300, top_percent=1.0, lang='vie+eng'):
-    """Worker OCR cho Multiprocessing (Có kèm log debug)"""
+def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: list, dpi=300, top_percent=0.6, lang='vie+eng'):
+    """Worker OCR cho Multiprocessing"""
     doc = None
     page = None
     img_array = None
     
     try:
-        if os.name == 'nt':  # Windows
+        # ---------------------------------------------------------------------
+        # Cài đặt đường dẫn Tesseract cho từng Process con
+        # ---------------------------------------------------------------------
+        if os.name == 'nt':  # Nếu là Windows
             tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
             if os.path.exists(tesseract_path):
                 pytesseract.pytesseract.tesseract_cmd = tesseract_path
@@ -139,21 +163,14 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
 
         img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
 
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. _'
+        custom_config = r'--oem 3 --psm 6'
         page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
         page_text = re.sub(r'\n+', ' ', page_text).strip()
 
-        # -------------------------------------------------------------
-        # 🔍 IN LOG DEBUG RA CONSOLE ĐỂ XEM TESSERACT ĐỌC ĐƯỢC GÌ
-        # -------------------------------------------------------------
-        print(f"\n--- [DEBUG TRANG {page_num + 1}] ---")
-        print(f"RAW TEXT OCR: {page_text[:300]}...") # In 300 ký tự đầu tiên đọc được
-        
         detected_gcn = extract_gcn_intelligent(page_text, excel_gcn_list)
-        print(f"-> KẾT QUẢ MATCH GCN: {detected_gcn}")
-        print(f"----------------------------------------\n")
-        
         elapsed = time.time() - start_time
+        
+        print(f"-> Trang {page_num + 1}: Mã GCN = {detected_gcn}")
         
         return {
             'page_num': page_num,
@@ -166,6 +183,9 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
         return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
         
     finally:
+        # ---------------------------------------------------------------------
+        # GIẢI PHÓNG BỘ NHỚ TRIỆT ĐỂ TRONG TIẾN TRÌNH CON
+        # ---------------------------------------------------------------------
         if page is not None:
             del page
         if doc is not None:
@@ -173,6 +193,8 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
             del doc
         if img_array is not None:
             del img_array
+        
+        # Gọi dọn dẹp bộ nhớ RAM của tiến trình con ngay lập tức
         import gc
         gc.collect()
 
@@ -197,22 +219,22 @@ def process_page_ocr_standalone(pdf_bytes: bytes, page_num: int, dpi=300, top_pe
 # HELPER MỚI (Dành riêng cho Tab 2 - Trích xuất KHÁCH QUAN mọi Mã GCN)
 # ---------------------------------------------------------------------------
 def extract_gcn_raw_standalone(text: str) -> Optional[str]:
-    """Tìm mã GCN thực tế trong PDF hỗ trợ tiền tố AC, _AC, .AC, -AC và mã dài"""
+    """Tìm mã GCN thực tế trong PDF (Khắt khe hơn để tránh bắt nhầm chữ THUYETMINH, TEC...)"""
     if not text:
         return None
 
     text = text.upper()
-    
-    # Cho phép độ dài thân mã quét lên đến 25 ký tự để không bị sót mã dài như _AC202610OSLA003000
-    candidates = re.findall(r'(?:[_\.\-\s]*)*\b([A-Z]{1,2}[A-Z0-9]{5,15}[-\/][A-Z0-9]{1,4}[-\/][A-Z0-9]{2,10})\b', text)
+    candidates = re.findall(r'\b[CT][A-Z0-9]{5,8}[-\/][A-Z0-9]{1,3}[-\/][A-Z0-9]{3,6}\b', text)
     
     if not candidates:
-        candidates = re.findall(r'(?:[_\.\-\s]*)*\b([A-Z]{1,2}[A-Z0-9]{6,25})\b', text)
+        candidates = re.findall(r'\b[CT][A-Z0-9]{5,8}[-\/][A-Z0-9]{3,8}\b', text)
 
     if candidates:
-        code = re.sub(r'[\s_\.\-]', '', candidates[0])
-        rest_fixed = re.sub(r'(?<=[-\/0-9])O(?=[0-9])|(?<=[0-9])O(?=[-\/0-9])', '0', code)
-        return rest_fixed
+        code = re.sub(r'\s+', '', candidates[0])
+        prefix = code[0]
+        rest = code[1:]
+        rest_fixed = re.sub(r'(?<=[-\/0-9])O(?=[0-9])|(?<=[0-9])O(?=[-\/0-9])', '0', rest)
+        return f"{prefix}{rest_fixed}"
 
     return None
 
@@ -503,15 +525,12 @@ async def process_pdf_split(
 def normalize_fuzzy_key(s: str) -> str:
     if not s:
         return ""
-    # Loại bỏ cả dấu gạch dưới '_' và dấu chấm '.' thừa của mã AC mới
-    clean = re.sub(r'[-\s\.\/\_]', '', str(s).upper())
+    clean = re.sub(r'[-\s\.\/]', '', str(s).upper())
     if not clean:
         return ""
 
-    # Giữ lại toàn bộ phần tiền tố chữ cái (có thể là C, T hoặc AC)
-    prefix_match = re.match(r'^[A-Z]+', clean)
-    prefix = prefix_match.group(0) if prefix_match else clean[0]
-    body = clean[len(prefix):]
+    prefix = clean[0]
+    body = clean[1:]
     
     body = body.replace('O', '0').replace('I', '1').replace('L', '1').replace('7', '1')
     
