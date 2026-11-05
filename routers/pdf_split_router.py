@@ -33,7 +33,6 @@ KEYWORDS_KIEU_MAY = [
     "型号/规格", "型号规格", "型号", "规格", "技术特征"
 ]
 
-# Các từ rác tiêu đề cần lọc bỏ khi bốc trúng chữ xung quanh mỏ neo
 TRASH_TEXTS = [
     "Technical specifications", "Technical Specification", "Technical spec",
     "Management No.", "Management No", "Certificate No.", "Certificate No",
@@ -42,7 +41,7 @@ TRASH_TEXTS = [
 ]
 
 # ==============================================================================
-# HÀM HỖ TRỢ XỬ LÝ CHUỖI & TÌM KIẾM
+# HÀM HỖ TRỢ XỬ LÝ CHUỖI & TÌM KIẾM CHUNG
 # ==============================================================================
 def parse_keywords(keyword_input: str) -> List[str]:
     if not keyword_input:
@@ -65,27 +64,21 @@ def clean_extracted_value(text: str) -> str:
 
     text = text.replace(":", "").replace("：", "").replace("\n", " ").strip()
     text = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', text)
-    text = re.sub(r'\s*-\s*', '-', text)  # Giữ nguyên dấu - chuẩn không bị dính khoảng trắng
+    text = re.sub(r'\s*-\s*', '-', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def get_text_next_to_anchors(page, anchor_keywords: List[str], shift_right=450, shift_down=35) -> str:
-    """
-    Tìm vị trí Mỏ neo (Anchor keyword). 
-    Quét vùng bên phải, nếu không có chữ thì quét vùng ngay bên dưới.
-    """
     for kw in anchor_keywords:
         rects = page.search_for(kw, flags=1)
         if rects:
             rect = rects[0]
-            # 1. Thử lấy chữ bên phải mỏ neo
             search_area_right = fitz.Rect(rect.x1, rect.y0 - 2, rect.x1 + shift_right, rect.y1 + 4)
             val_right = page.get_text("text", clip=search_area_right).strip()
             clean_val = clean_extracted_value(val_right)
             if clean_val and len(clean_val) > 1:
                 return clean_val
 
-            # 2. Nếu bên phải trống, thử lấy chữ dòng bên dưới mỏ neo
             search_area_below = fitz.Rect(rect.x0 - 5, rect.y1, rect.x1 + shift_right, rect.y1 + shift_down)
             val_below = page.get_text("text", clip=search_area_below).strip()
             clean_val_below = clean_extracted_value(val_below)
@@ -95,27 +88,37 @@ def get_text_next_to_anchors(page, anchor_keywords: List[str], shift_right=450, 
 
 def extract_gcn_with_flexible_regex(page) -> Optional[str]:
     """
-    Tìm Mã GCN: Chỉ lấy chữ nằm cạnh từ khóa 'Số GCN', 'Certificate No', '证书编号'...
+    Tìm Mã GCN: Giữ nguyên ký tự đặc biệt đầu dòng (_, .) và bắt buộc phải có chữ số để tránh bắt nhầm tiêu đề.
     """
-    # Nếu truyền vào đối tượng trang PDF (PyMuPDF page)
+    val_anchor = ""
     if hasattr(page, "search_for"):
-        # Tìm chữ bên cạnh/bên dưới mỏ neo Số GCN
         val_anchor = get_text_next_to_anchors(page, KEYWORDS_SO_GCN)
-        if val_anchor:
-            # Lấy mã dạng C202607-R0108 trong vùng mỏ neo
-            m = re.search(r'([A-Z0-9]{2,}\s*[-_]\s*[A-Z0-9]{2,}(?:\s*[-_]\s*[A-Z0-9]+)?)', val_anchor, re.IGNORECASE)
-            if m:
-                return re.sub(r'\s*', '', m.group(1)).upper()
-            # Nếu vùng mỏ neo không có dấu gạch ngang, trả về nguyên chuỗi đã làm sạch
-            return val_anchor
+    
+    blacklist_words = ["CERTIFICATE", "CERTIFICATE NO", "MÃ SỐ GCN", "SỐ GCN", "NO", "GIẤY CHỨNG NHẬN", "CALIBRATION"]
+    if val_anchor.upper().strip() in blacklist_words:
+        val_anchor = ""
 
-    # Fallback nếu truyền vào là chuỗi text thuần
+    if val_anchor:
+        m = re.search(r'([_\.]?[A-Z]{1,3}[\.A-Z0-9_\-\/]*\d+[A-Z0-9_\-\/]*)', val_anchor, re.IGNORECASE)
+        if m:
+            raw_code = m.group(1).strip()
+            cleaned = re.sub(r'\s+', '', raw_code)
+            if cleaned.upper() not in blacklist_words and len(cleaned) >= 5 and any(char.isdigit() for char in cleaned):
+                return cleaned.upper()
+
     text = page.get_text("text") if hasattr(page, "get_text") else str(page)
-    m = re.search(r'([A-Z0-9]{2,}\s*[-_]\s*[A-Z0-9]{2,}(?:\s*[-_]\s*[A-Z0-9]+)?)', text, re.IGNORECASE)
-    return re.sub(r'\s*', '', m.group(1)).upper() if m else None
+    candidates = re.findall(r'([_\.]?[A-Z]{1,3}[\.A-Z0-9_\-\/]*\d+[A-Z0-9_\-\/]*)', text, re.IGNORECASE)
+    
+    for cand in candidates:
+        cleaned_cand = re.sub(r'\s+', '', cand).upper()
+        if cleaned_cand not in blacklist_words and len(cleaned_cand) >= 5 and any(char.isdigit() for char in cleaned_cand):
+            temp_check = cleaned_cand.lstrip('_').lstrip('.')
+            if any(temp_check.startswith(prefix) for prefix in ["AC", "C", "T", "PC", "GCN"]):
+                return cleaned_cand
+
+    return None
 
 def extract_info_smart_anchors(page, naming_type: str) -> Optional[str]:
-    """Trích xuất thông tin dựa vào Mỏ Neo Từ Khóa + Fallback Regex"""
     full_text = page.get_text("text")
 
     if naming_type == "so_gcn":
@@ -125,14 +128,12 @@ def extract_info_smart_anchors(page, naming_type: str) -> Optional[str]:
             if gcn_match:
                 return gcn_match
             return val
-        # Fallback toàn trang
         return extract_gcn_with_flexible_regex(full_text)
 
     elif naming_type == "ma_ql":
         val = get_text_next_to_anchors(page, KEYWORDS_MA_QL)
         if val and val.lower() not in ["/", "", "none", "nan", "号"]:
             return val
-        # Fallback Regex mã QL phổ biến (vd: PC-13624, TB-01)
         match_ma = re.search(r'([A-Z]{1,4}\s*[-_]\s*\d{3,6})', full_text, re.IGNORECASE)
         if match_ma:
             return re.sub(r'\s*', '', match_ma.group(1)).upper()
@@ -141,7 +142,6 @@ def extract_info_smart_anchors(page, naming_type: str) -> Optional[str]:
         raw_ten = get_text_next_to_anchors(page, KEYWORDS_TEN_TB)
         raw_kieu = get_text_next_to_anchors(page, KEYWORDS_KIEU_MAY)
         
-        # Làm sạch nâng cao cho tên thiết bị
         if "/" in raw_ten:
             raw_ten = raw_ten.split("/")[0].strip()
         if "(" in raw_ten:
@@ -154,30 +154,24 @@ def extract_info_smart_anchors(page, naming_type: str) -> Optional[str]:
             return f"{raw_ten}_{raw_kieu}"
         return raw_ten if raw_ten else raw_kieu
 
-    # Mặc định Fallback lấy Số GCN
     gcn_fallback = extract_gcn_with_flexible_regex(full_text)
     return f"GCN_{gcn_fallback}" if gcn_fallback else None
 
 def append_page_count_to_filename(base_name: str, page_count: int, include_page_count: bool) -> str:
-    """
-    Nối số trang vào cuối tên file nếu include_page_count = True.
-    Ví dụ: 'MA_QL_01' -> 'MA_QL_01_3Trang'
-    """
     if include_page_count and page_count > 0:
         return f"{base_name}_{page_count}Trang"
     return base_name
 
 
 # ==============================================================================
-# API ENDPOINTS
+# API ENDPOINT - TAB 1: TÁCH SMART THEO TỪ KHÓA
 # ==============================================================================
-
 @router.post("/split-smart")
 async def split_pdf_smart(
     pdf_file: UploadFile = File(...),
     keyword: str = Form("Giấy chứng nhận, Certificate, 证书"),
     naming_type: str = Form("ma_ql"),
-    include_page_count: bool = Form(False)  # <-- THÊM THAM SỐ NÀY
+    include_page_count: bool = Form(False)
 ):
     keyword_list = parse_keywords(keyword)
     if not keyword_list:
@@ -209,7 +203,7 @@ async def split_pdf_smart(
                 new_doc = fitz.open()
                 new_doc.insert_pdf(doc, from_page=start, to_page=end - 1)
 
-                page_count = len(new_doc)  # <-- ĐẾM SỐ TRANG CỦA FILE TÁCH
+                page_count = len(new_doc)
                 first_page = new_doc[0]
                 extracted_name = extract_info_smart_anchors(first_page, naming_type)
 
@@ -219,7 +213,6 @@ async def split_pdf_smart(
                     filename_base = re.sub(r'\s+', ' ', extracted_name).strip()
                     filename_base = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '_', filename_base)
 
-                # <-- NỐI HẬU TỐ SỐ TRANG NẾU CÓ CHỌN
                 filename_base = append_page_count_to_filename(filename_base, page_count, include_page_count)
 
                 if filename_base in used_names:
@@ -245,13 +238,17 @@ async def split_pdf_smart(
             raise e
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==============================================================================
+# API ENDPOINT - TAB 2: TÁCH ĐỐI CHƯỚC EXCEL
+# ==============================================================================
 @router.post("/split-excel")
 async def split_pdf_excel(
     pdf_file: UploadFile = File(...),
     excel_file: UploadFile = File(...),
     keyword: str = Form("Giấy chứng nhận, Certificate, Certificate of Calibration, 证书"),
     naming_type: str = Form("ten_tb"),
-    include_page_count: bool = Form(False)  # <-- THÊM THAM SỐ NÀY
+    include_page_count: bool = Form(False)
 ):
     keywords = parse_keywords(keyword)
     if not keywords:
@@ -281,7 +278,6 @@ async def split_pdf_excel(
 
         for i, page in enumerate(doc):
             if search_any_keyword_in_page(page, keywords):
-                page_text = page.get_text("text")
                 current_gcn = extract_gcn_with_flexible_regex(page)
 
                 if not cut_points or (current_gcn and current_gcn != last_gcn_found):
@@ -300,25 +296,31 @@ async def split_pdf_excel(
                 new_doc = fitz.open()
                 new_doc.insert_pdf(doc, from_page=start, to_page=end - 1)
 
-                page_count = len(new_doc)  # <-- ĐẾM SỐ TRANG CỦA FILE TÁCH
-                first_page_text = new_doc[0].get_text("text")
+                page_count = len(new_doc)
                 gcn_key = extract_gcn_with_flexible_regex(new_doc[0])
 
-                if gcn_key:
+                if gcn_key and "CALIBRATION" not in gcn_key.upper():
                     final_filename = f"GCN_{gcn_key}_Khong_Co_Trong_Excel"
-                    excel_column_clean = (
-                        df[25].astype(str)
-                        .str.strip()
-                        .str.upper()
-                        .str.replace(r'\s*', '', regex=True)
-                        .str.replace('_', '-')
-                    )
+                    
+                    excel_col = df[25].astype(str).str.strip().str.upper()
+                    
+                    p_key_original = gcn_key.upper()
+                    p_key_norm1 = gcn_key.replace('_', '-').upper()
+                    p_key_norm2 = gcn_key.replace('.', '-').upper()
+                    p_key_clean = re.sub(r'[\.\-\s\/_]', '', gcn_key).upper()
+                    
+                    excel_col_clean = excel_col.str.replace(r'[\.\-\s\/_]', '', regex=True)
 
-                    clean_gcn_key = gcn_key.replace('_', '-')
-                    matched_rows = df[excel_column_clean == clean_gcn_key]
-
+                    matched_rows = df[excel_col == p_key_original]
+                    
                     if matched_rows.empty:
-                        matched_rows = df[excel_column_clean.str.contains(gcn_key, na=False, regex=False)]
+                        matched_rows = df[excel_col.str.replace('_', '-').upper() == p_key_norm1]
+                        
+                    if matched_rows.empty:
+                        matched_rows = df[excel_col.str.replace('.', '-').upper() == p_key_norm2]
+                        
+                    if matched_rows.empty:
+                        matched_rows = df[excel_col_clean == p_key_clean]
 
                     if not matched_rows.empty:
                         row = matched_rows.iloc[0]
@@ -349,8 +351,6 @@ async def split_pdf_excel(
                     final_filename = f"Khong_Do_Duoc_GCN_{i+1}"
 
                 final_filename = re.sub(r'\s+', ' ', final_filename).strip()
-
-                # <-- NỐI HẬU TỐ SỐ TRANG NẾU CÓ CHỌN
                 final_filename = append_page_count_to_filename(final_filename, page_count, include_page_count)
 
                 if final_filename in used_names:
