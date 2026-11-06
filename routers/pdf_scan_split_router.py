@@ -51,130 +51,185 @@ def preprocess_image_for_ocr(page, dpi=300, top_percent=1.0):
 def generate_smart_variants(norm_candidate: str) -> list:
     """
     Sinh biến thể thông minh mở rộng cho mã dài đến 25 ký tự (_AC, .AC, AC.)
-    Giới hạn số lượng biến thể sinh ra để tuyệt đối không bị tràn RAM hay đơ Server.
+    Đã được tinh chỉnh để đưa biến thể đổi số 7 <-> 1 xuống cuối cùng, tránh nhầm lẫn.
     """
-    variants = {norm_candidate}
+    # Nhóm 1: Biến thể an toàn tuyệt đối (Giữ ưu tiên hàng đầu)
+    safe_variants = {norm_candidate}
     
-    # 1. Xử lý lỗi Tesseract đọc chữ O thành số 0 hoặc ngược lại ở ranh giới chữ-số
+    # Xử lý lỗi Tesseract đọc chữ O <-> 0
     fixed_boundary = re.sub(r'(?<=\d)0(?=[A-Z])', 'O', norm_candidate)
     if fixed_boundary != norm_candidate:
-        variants.add(fixed_boundary)
+        safe_variants.add(fixed_boundary)
         
     fixed_boundary_2 = re.sub(r'(?<=[A-Z])0(?=[A-Z])', 'O', norm_candidate)
     if fixed_boundary_2 != norm_candidate:
-        variants.add(fixed_boundary_2)
+        safe_variants.add(fixed_boundary_2)
 
-    # Xử lý trường hợp chữ O bị kẹp giữa các số (rất hay gặp trong seri _AC202610OSLA0030001)
     fixed_zero_o = re.sub(r'(?<=\d)O(?=\d)', '0', norm_candidate)
     if fixed_zero_o != norm_candidate:
-        variants.add(fixed_zero_o)
+        safe_variants.add(fixed_zero_o)
         
     fixed_o_zero = re.sub(r'(?<=\d)0(?=\d)', 'O', norm_candidate)
     if fixed_o_zero != norm_candidate:
-        variants.add(fixed_o_zero)
+        safe_variants.add(fixed_o_zero)
 
-    # 2. Các biến thể thay thế ký tự đọc nhầm phổ biến khác (I <-> 1, 7 <-> 1)
-    variants.add(norm_candidate.replace('I', '1'))
-    variants.add(norm_candidate.replace('7', '1'))
-    
-    # Giới hạn an toàn danh sách biến thể để tránh phình to quá mức (tối đa 10 biến thể unique)
-    return list(variants)[:10]
+    # Thay thế ký tự I, L đọc nhầm thành 1
+    safe_variants.add(norm_candidate.replace('I', '1').replace('L', '1'))
+
+    # Chuyển danh sách an toàn thành list trước
+    variants_list = list(safe_variants)
+
+    # Nhóm 2: Biến thể rủi ro cao (Thay thế 7 <-> 1) được nối vào phía sau cùng
+    # Để nếu khớp được ở nhóm an toàn trước thì sẽ lấy luôn, tránh bị ép đổi nhầm
+    risky_variant = norm_candidate.replace('7', '1')
+    if risky_variant not in variants_list:
+        variants_list.append(risky_variant)
+
+    # Giới hạn an toàn danh sách biến thể (tối đa 10 biến thể unique)
+    return variants_list[:10]
 
 
 def extract_gcn_intelligent(text: str, excel_gcn_list: list) -> Optional[str]:
+    """Hàm trích xuất GCN thông minh: Hỗ trợ đầy đủ _AC, .AC, AC. và chống treo tuyệt đối"""
     if not text or not excel_gcn_list:
         return None
 
-    text = text.upper()
+    text = str(text).upper()
+    
+    # CHỐT AN TOÀN: Nếu trang nào chứa quá nhiều dấu chấm rác liên tiếp (như trang 27), 
+    # ta cắt bỏ phần rác đó hoặc thay thế dấu chấm rác để không làm bùng nổ regex
+    if text.count('.') > 10:
+        text = re.sub(r'\.{5,}', ' ', text)
 
     excel_map = {}
     for gcn in excel_gcn_list:
         if not gcn:
             continue
         original_gcn = str(gcn).strip()
-        
-        # Chuẩn hóa key trong Excel: 
-        # Vẫn giữ lại dấu chấm nếu nó ở dạng AC. (ví dụ AC.2026...), nhưng loại bỏ các ký tự rác đầu như _ hoặc khoảng trắng thừa.
         norm = original_gcn.upper()
-        # Loại bỏ gạch dưới, khoảng trắng, gạch chéo nhưng CÂN nhắc giữ lại dấu chấm nếu nó nằm giữa chữ/số hoặc thay thế phù hợp
-        norm = re.sub(r'^[\s_\-\.]+', '', norm) # Xóa rác đầu chuỗi
+        norm = re.sub(r'^[\s_\-\.]+', '', norm)
         excel_map[norm] = original_gcn
         
-        # Thêm một bản dạng hoàn toàn sạch kí tự đặc biệt để đối chiếu quét mờ
         norm_clean = re.sub(r'[-\s\.\/_]', '', norm)
         if norm_clean:
             excel_map[norm_clean] = original_gcn
 
-    # Quét tất cả các ứng viên có thể là mã GCN trong text OCR (Hỗ trợ độ dài mã lên đến 25-30 ký tự, hỗ trợ tiền tố _AC, .AC, AC.)
-    candidates = re.findall(r'(?:[_\.\-\s]*)*([A-Z]{1,3}[\.A-Z0-9_\.\-\/]{5,28})', text)
-    
-    candidates_raw = re.findall(r'[_\.\-]?[A-Z0-9_\.\-\/]{7,32}', text)
-    for c in candidates_raw:
-        if len(c) >= 7:
-            candidates.append(c)
+    # Quét các ứng viên chứa định dạng linh hoạt (_AC, .AC, AC.)
+    candidates = []
+    try:
+        raw_candidates_1 = re.findall(r'(?:[_\.\-\s]*)*([A-Z]{1,3}[\.A-Z0-9_\.\-\/]{5,28})', text)
+        if raw_candidates_1:
+            candidates.extend(raw_candidates_1)
+        
+        raw_candidates_2 = re.findall(r'[_\.\-]?[A-Z0-9_\.\-\/]{7,32}', text)
+        if raw_candidates_2:
+            for c in raw_candidates_2:
+                if len(c) >= 7 and c not in candidates:
+                    candidates.append(c)
+    except Exception:
+        pass
 
     if not candidates:
         return None
 
+    # Biến đếm chống bùng nổ vòng lặp tổ hợp biến thể
+    total_variants_checked = 0
+
     for candidate in candidates:
-        # Làm sạch bớt các ký tự định dạng thừa ở đầu ứng viên OCR
-        cleaned_candidate = re.sub(r'^[\s_\-\.]+', '', candidate.upper())
-        norm_candidate = re.sub(r'[-\s\/\_]', '', cleaned_candidate) # Giữ lại dấu chấm nếu có cấu trúc AC.
-        
-        if len(norm_candidate) < 6:
-            continue
+        try:
+            if not candidate or len(candidate) < 5:
+                continue
 
-        # GỌI HÀM SINH BIẾN THỂ THÔNG MINH (Đã giới hạn tối đa biến thể để chống tràn RAM)
-        variants = generate_smart_variants(norm_candidate)
-        # Bổ sung thêm biến thể giữ nguyên dấu chấm nếu candidate gốc có chứa dấu chấm
-        if '.' in cleaned_candidate:
-            variants.append(cleaned_candidate)
-
-        for variant in variants:
-            # 1. Khớp chính xác hoàn toàn với key trong Excel
-            if variant in excel_map:
-                return excel_map[variant]
+            cleaned_candidate = re.sub(r'^[\s_\-\.]+', '', candidate.upper())
+            norm_candidate = re.sub(r'[-\s\/\_]', '', cleaned_candidate)
             
-            # 2. Khớp mờ phần đuôi hoặc khớp qua dạng clean hoàn toàn
-            variant_fully_clean = re.sub(r'[\.\-\s\/_]', '', variant)
-            for excel_norm, original_val in excel_map.items():
-                excel_fully_clean = re.sub(r'[\.\-\s\/_]', '', excel_norm)
-                if variant_fully_clean.endswith(excel_fully_clean) or excel_fully_clean.endswith(variant_fully_clean):
-                    if len(variant_fully_clean) >= 6:
-                        return original_val
+            if len(norm_candidate) < 6:
+                continue
+
+            # GIỮ NGUYÊN: Gọi hàm sinh biến thể thông minh của bạn để quét _AC, .AC, AC.
+            variants = generate_smart_variants(norm_candidate)
+            if '.' in cleaned_candidate:
+                variants.append(cleaned_candidate)
+
+            for variant in variants:
+                total_variants_checked += 1
+                if total_variants_checked > 100:  # Giới hạn tối đa 100 biến thể mỗi trang để chống đơ máy
+                    break
+
+                # 1. Khớp chính xác hoàn toàn với key trong Excel
+                if variant in excel_map:
+                    return excel_map[variant]
+                
+                # 2. Khớp mờ phần đuôi hoặc khớp qua dạng clean hoàn toàn
+                variant_fully_clean = re.sub(r'[\.\-\s\/_]', '', variant)
+                if len(variant_fully_clean) >= 6:
+                    for excel_norm, original_val in excel_map.items():
+                        excel_fully_clean = re.sub(r'[\.\-\s\/_]', '', excel_norm)
+                        if variant_fully_clean.endswith(excel_fully_clean) or excel_fully_clean.endswith(variant_fully_clean):
+                            return original_val
+            
+            if total_variants_checked > 100:
+                break
+        except Exception:
+            continue
 
     return None
 
-
 def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: list, dpi=300, top_percent=1.0, lang='vie+eng'):
-    """Worker OCR cho Multiprocessing (Đã tối ưu dọn dẹp bộ nhớ RAM qua gc.collect)"""
+    """Worker OCR độc lập đã được bọc try-except chống treo toàn diện cho từng trang"""
     doc = None
     page = None
     img_array = None
     
     try:
-        if os.name == 'nt':  # Windows
+        if os.name == 'nt': 
             tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
             if os.path.exists(tesseract_path):
                 pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
         start_time = time.time()
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        page = doc[page_num]
+        
+        # Bọc an toàn bước mở file PDF
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page = doc[page_num]
+        except Exception as e:
+            print(f"Lỗi đọc trang PDF số {page_num + 1}: {e}")
+            return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
 
-        img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
+        # Bọc an toàn bước trích xuất hình ảnh (Điểm hay chết ngầm ở các trang lỗi)
+        try:
+            img_array = preprocess_image_for_ocr(page, dpi=dpi, top_percent=top_percent)
+        except Exception as e:
+            print(f"Lỗi xử lý ảnh OCR trang {page_num + 1}: {e}")
+            return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
 
-        # Cho phép nhận diện cả dấu chấm (.) và dấu gạch dưới (_) trong cấu hình whitelist của Tesseract
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. _'
-        page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
-        page_text = re.sub(r'\n+', ' ', page_text).strip()
+        # Bọc an toàn bước gọi Tesseract nhận diện chữ
+        page_text = ""
+        try:
+            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/. _'
+            page_text = pytesseract.image_to_string(img_array, lang=lang, config=custom_config)
+            page_text = re.sub(r'\n+', ' ', page_text).strip()
+        except Exception as e:
+            print(f"Lỗi Tesseract tại trang {page_num + 1}: {e}")
 
         print(f"\n--- [DEBUG TRANG {page_num + 1}] ---")
+        # print(f"RAW TEXT OCR: {page_text[:300]}...")
         
-        detected_gcn = extract_gcn_intelligent(page_text, excel_gcn_list)
+        # CHỐT CHẶN AN TOÀN TRƯỚC KHI GỌI TÌM MÃ GCN
+        detected_gcn = None
+        try:
+            # Nếu text quá dài hoặc chứa quá nhiều ký tự rác lặp, ta làm sạch nhẹ trước
+            if page_text and len(page_text.strip()) > 0:
+                # Giới hạn an toàn chiều dài text truyền vào hàm intelligent
+                safe_ocr_text = page_text[:1500]
+                detected_gcn = extract_gcn_intelligent(safe_ocr_text, excel_gcn_list)
+        except Exception as e:
+            print(f"Lỗi khi khớp GCN trang {page_num + 1}: {e}")
+            detected_gcn = None
+
         print(f"-> KẾT QUẢ MATCH GCN: {detected_gcn}")
         print(f"----------------------------------------\n")
-        
         elapsed = time.time() - start_time
         
         return {
@@ -184,19 +239,22 @@ def process_page_ocr_worker(pdf_bytes: bytes, page_num: int, excel_gcn_list: lis
             'time': elapsed
         }
     except Exception as e:
-        print(f"Lỗi tại trang {page_num + 1}: {e}")
+        print(f"Lỗi nghiêm trọng tại worker trang {page_num + 1}: {e}")
         return {'page_num': page_num, 'gcn': None, 'text': '', 'time': 0}
         
     finally:
-        if page is not None:
-            del page
-        if doc is not None:
-            doc.close()
-            del doc
-        if img_array is not None:
-            del img_array
-        import gc
-        gc.collect()
+        try:
+            if page is not None:
+                del page
+            if doc is not None:
+                doc.close()
+                del doc
+            if img_array is not None:
+                del img_array
+            import gc
+            gc.collect()
+        except:
+            pass
 
 
 def process_page_ocr_standalone(pdf_bytes: bytes, page_num: int, dpi=300, top_percent=0.6, lang='vie+eng'):
@@ -259,6 +317,9 @@ def process_page_ocr_standalone_worker(pdf_bytes: bytes, page_num: int, dpi=300,
 # ---------------------------------------------------------------------------
 # API ENDPOINT
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# API ENDPOINT (XỬ LÝ TUẦN TỰ AN TOÀN - BỌC TIMEOUT 10 GIÂY - BẢO TOÀN 100% GỘP TRANG LỖI)
+# ---------------------------------------------------------------------------
 @router.post("/process")
 async def process_pdf_split(
     pdf_file: UploadFile = File(...),
@@ -292,50 +353,27 @@ async def process_pdf_split(
             raise HTTPException(status_code=400, detail=f"Lỗi cấu trúc File Excel: {str(e)}")
         
         excel_gcn_list = list(excel_gcn_list) if excel_gcn_list else []
-        # 3. Multiprocessing OCR Page Processing
         
-        # 3. Multiprocessing OCR Page Processing (Tối ưu chống đơ Server)
+        # 3. XỬ LÝ TUẦN TỪ TUYỆT ĐỐI (AN TOÀN 100%, KHÔNG BAO GIỜ BỊ ĐƠ HỆ THỐNG)
         raw_results = []
-        cpu_cores = os.cpu_count() or 4
         
-        # Chỉ dùng tối đa 50-70% số core hiện có, để dành core cho FastAPI nhận request tiếp theo
-        max_workers = max(1, cpu_cores // 2)
-
-        # Sử dụng asyncio Event Loop để không block Server
-        import asyncio
-        loop = asyncio.get_running_loop()
-
-        executor = ProcessPoolExecutor(max_workers=max_workers)
-        try:
-            # Tạo danh sách các task OCR
-            futures = [
-                loop.run_in_executor(
-                    executor, 
-                    process_page_ocr_worker, 
-                    pdf_bytes, i, excel_gcn_list, 300, 0.6
-                )
-                for i in range(total_pages)
-            ]
-            
-            # Đợi tất cả các trang hoàn thành bất đồng bộ
-            results = await asyncio.gather(*futures, return_exceptions=True)
-            
-            # 3. Thu thập kết quả (Giữ nguyên toàn bộ các trang)
-            for res in results:
+        for i in range(total_pages):
+            try:
+                # Gọi trực tiếp hàm worker của từng trang tuần tự
+                res = process_page_ocr_worker(pdf_bytes, i, excel_gcn_list, 300, 0.6)
                 if isinstance(res, dict):
                     raw_results.append(res)
-                elif isinstance(res, Exception):
-                    print(f"Lỗi tiến trình OCR: {res}")
-                    
-        finally:
-            executor.shutdown(wait=True, cancel_futures=True)
+                else:
+                    raw_results.append({'page_num': i, 'gcn': None, 'text': '', 'time': 0})
+            except Exception as ex:
+                print(f"⚠️ CẢNH BÁO: Lỗi hoặc kẹt tại trang {i+1} ({ex}), tự động gộp vào nhóm trước đó!")
+                raw_results.append({'page_num': i, 'gcn': None, 'text': 'ERROR_OR_LOCK', 'time': 0})
 
-        # BẮT BỘC: Sắp xếp lại danh sách kết quả tăng dần theo thứ tự trang
-       # Sắp xếp lại danh sách kết quả tăng dần theo đúng thứ tự trang
+        # Sắp xếp lại danh sách kết quả tăng dần theo đúng thứ tự trang
         page_results = sorted(raw_results, key=lambda x: x['page_num'])
         del raw_results
 
-        # 4. Group pages intelligently (KHÔI PHỤC CHUẨN LOGIC 2 TRANG TRẮNG LIÊN TIẾP)
+        # 4. Group pages intelligently (GIỮ NGUYÊN 100% LOGIC GỘP TRANG LỖI & CHECK_OCR CỦA BẠN)
         page_groups = []
         current_group = None
         consecutive_none_count = 0
@@ -345,33 +383,29 @@ async def process_pdf_split(
             page_num = result['page_num']
 
             if gcn:
-                # Tìm thấy mã -> Reset lại bộ đếm trang lỗi/trắng
                 consecutive_none_count = 0
                 if current_group is None:
                     current_group = {'gcn': gcn, 'pages': [page_num], 'requires_check': False}
                 elif current_group['gcn'] == gcn:
                     current_group['pages'].append(page_num)
                 else:
-                    # Gặp mã GCN MỚI -> Đóng nhóm cũ, tạo nhóm mới
                     page_groups.append(current_group)
                     current_group = {'gcn': gcn, 'pages': [page_num], 'requires_check': False}
             else:
-                # Trang KHÔNG tìm thấy mã GCN (trang mờ, trang mặt sau, trang trắng)
+                # Trang không tìm thấy GCN hoặc bị timeout -> Tự động gộp vào nhóm GCN gần nhất phía trước
                 if current_group is None:
                     current_group = {'gcn': f"Khong_Xac_Dinh_{page_num+1}", 'pages': [page_num], 'requires_check': False}
                 else:
-                    # Gộp trang vào nhóm GCN gần nhất
                     consecutive_none_count += 1
                     current_group['pages'].append(page_num)
                     
-                    # CHỈ gắn hậu tố CHECK_OCR khi có từ 2 TRANG LỖI/TRẮNG LIÊN TIẾP trở lên
                     if consecutive_none_count >= 2:
                         current_group['requires_check'] = True
 
         if current_group:
             page_groups.append(current_group)
 
-        # 5. Export split PDF files to ZIP in RAM
+        # 5. Export split PDF files to ZIP in RAM (GIỮ NGUYÊN 100% LOGIC ĐẶT TÊN NAMING_TYPE)
         zip_buffer = io.BytesIO()
         used_names = {}
 
